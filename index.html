@@ -1,0 +1,833 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover">
+<title>Sutra Token Mining</title>
+<meta name="theme-color" content="#0b0705">
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/12.2.1/firebase-app.js";
+import { getFirestore, doc, setDoc, getDoc, collection, getDocs, runTransaction, serverTimestamp, query, where } from "https://www.gstatic.com/firebasejs/12.2.1/firebase-firestore.js";
+import { getAuth, createUserWithEmailAndPassword, signInWithEmailAndPassword, sendEmailVerification, signOut, onAuthStateChanged, signInAnonymously, linkWithCredential, EmailAuthProvider } from "https://www.gstatic.com/firebasejs/12.2.1/firebase-auth.js";
+import { getStorage, ref, uploadBytes, getDownloadURL } from "https://www.gstatic.com/firebasejs/12.2.1/firebase-storage.js";
+
+const app = initializeApp({
+  apiKey: "AIzaSyBObs__5uwNvglPIdYjPKHh5q14Wc5F0yA",
+  authDomain: "sutra-token-app.firebaseapp.com",
+  projectId: "sutra-token-app",
+  storageBucket: "sutra-token-app.firebasestorage.app",
+  messagingSenderId: "946400061874",
+  appId: "1:946400061874:web:21b54d1b367796ca391cab",
+  measurementId: "G-FZ5JNE08ZB"
+});
+const db = getFirestore(app), auth = getAuth(app), storage = getStorage(app);
+window.db = db; window.auth = auth;
+window.fsCollection = collection; window.fsGetDocs = getDocs;
+const tgId = () => window.Telegram?.WebApp?.initDataUnsafe?.user?.id;
+
+// ---- every user (Telegram or browser) gets a real Firebase Auth session, and their
+// data-doc id ("docKey") is bound to that auth uid exactly once, in userLinks/{docKey}.
+// Firestore rules use that binding to make sure a user can only ever read/write their OWN doc.
+window.saveUserData = async (uid, data) => {
+  if (!uid) return false;
+  try { await setDoc(doc(db, "users", String(uid)), { ...data, updatedAt: serverTimestamp() }, { merge: true }); return true; }
+  catch (e) { console.error(e); return false; }
+};
+window.loadUserData = async (uid) => {
+  if (!uid) return null;
+  const s = await getDoc(doc(db, "users", String(uid)));
+  return s.exists() ? s.data() : null;
+};
+window.uploadProfileImage = async (uid, file) => {
+  // stored under the caller's own Auth uid, never the docKey, so Storage rules can check request.auth.uid directly
+  const r = ref(storage, `profile_pictures/${auth.currentUser.uid}/${Date.now()}_${file.name}`);
+  return getDownloadURL((await uploadBytes(r, file)).ref);
+};
+
+// ---- masked, public leaderboard row: no email/photo/session data, only what ranking needs ----
+window.saveLeaderboardRow = (docKey, row) => setDoc(doc(db, "leaderboard", String(docKey)), { ...row, updatedAt: serverTimestamp() }, { merge: true });
+
+// ---- one-time, immutable ownership link: docKey -> authUid. First write wins and can never change. ----
+async function ensureLink(docKey, authUid) {
+  const r = doc(db, "userLinks", String(docKey));
+  const existing = await getDoc(r);
+  if (existing.exists()) {
+    if (existing.data().authUid !== authUid) throw new Error("This account is already linked to a different session.");
+    return;
+  }
+  await setDoc(r, { authUid, linkedAt: serverTimestamp() });
+}
+window.ensureLink = ensureLink;
+
+// Account: Firebase Auth stores the password securely (hashed). We never store it in Firestore.
+window.registerAccount = async (p) => {
+  if (await window.userIdExists(p.userId)) throw new Error("This User ID is already taken. Choose another.");
+  const guest = auth.currentUser && auth.currentUser.isAnonymous;
+  // a guest who already mined keeps the same account (same data); otherwise create a new one
+  const cred = guest ? await linkWithCredential(auth.currentUser, EmailAuthProvider.credential(p.email, p.password))
+                     : await createUserWithEmailAndPassword(auth, p.email, p.password);
+  const authUid = cred.user.uid;
+  const docKey = window.docKey || (tgId() ? String(tgId()) : authUid);
+  try { await ensureLink(docKey, authUid); } catch (e) { if (!guest) await cred.user.delete(); throw e; }
+  try {
+    await runTransaction(db, async (tx) => {
+      const r = doc(db, "userIds", p.userId);
+      if ((await tx.get(r)).exists()) throw new Error("This User ID is already taken. Choose another.");
+      tx.set(r, { docKey, authUid, email: p.email.toLowerCase() });
+    });
+  } catch (e) { if (!guest) await cred.user.delete(); throw e; }
+  const old = await window.loadUserData(docKey);
+  await window.saveUserData(docKey, { firstName: p.first, lastName: p.last, name: (p.first + " " + p.last).trim(),
+    phone: p.phone, userId: p.userId, email: p.email.toLowerCase(), ...(old ? {} : { createdAt: serverTimestamp(), role: "user", status: "active" }) });
+  try { await sendEmailVerification(cred.user); } catch (e) {}
+};
+window.loginAccount = async (userId, email, password) => {
+  const s = await getDoc(doc(db, "userIds", userId));
+  if (!s.exists() || s.data().email !== email.toLowerCase()) throw new Error("User ID, email or password is incorrect.");
+  let cred;
+  try { cred = await signInWithEmailAndPassword(auth, email, password); }
+  catch (e) { throw new Error("User ID, email or password is incorrect."); }
+  await cred.user.reload();
+  if (!cred.user.emailVerified) {
+    try { await sendEmailVerification(cred.user); } catch (e) {}
+    await signOut(auth);
+    throw new Error("Email not verified yet. We sent a new link. Open it, then log in again.");
+  }
+};
+
+// ---- referrals: every write touches ONLY the caller's own document, never someone else's ----
+// referrals/{referredDocKey}      -- created & updated only by the referred friend themselves
+// referralClaims/{referredDocKey} -- created only by the referrer, once, to collect their own reward
+window.refCreate = (referredId, referrerId) => setDoc(doc(db, "referrals", String(referredId)), { referrerId: String(referrerId), qualified: false, createdAt: serverTimestamp() });
+window.refMarkQualified = (referredId) => setDoc(doc(db, "referrals", String(referredId)), { qualified: true }, { merge: true });
+window.refListFor = async (myId) => {
+  const s = await getDocs(query(collection(db, "referrals"), where("referrerId", "==", String(myId))));
+  const a = []; s.forEach(d => a.push({ id: d.id, ...d.data() })); return a;
+};
+window.refClaim = (referredId, referrerId) => setDoc(doc(db, "referralClaims", String(referredId)), { referrerId: String(referrerId), claimedAt: serverTimestamp() });
+window.refClaimed = async (referredId) => (await getDoc(doc(db, "referralClaims", String(referredId)))).exists();
+
+window.resendVerification = () => sendEmailVerification(auth.currentUser);
+window.logoutAccount = () => signOut(auth);
+window.userIdExists = async (id) => (await getDoc(doc(db, "userIds", id))).exists();
+
+let booted = false;
+onAuthStateChanged(auth, async (u) => {
+  if (!u) {
+    if (booted) return;
+    try { await signInAnonymously(auth); } catch (e) { console.error(e); }   // every session, Telegram or browser, gets a real auth uid
+    return;
+  }
+  const docKey = tgId() ? String(tgId()) : u.uid;
+  try { await ensureLink(docKey, u.uid); window.docKey = docKey; }
+  catch (e) { console.error(e); window.docKey = null; window.linkError = e.message; }
+  if (!booted) { booted = true; window.bootApp(u); }
+});
+</script>
+<style>
+:root{
+  --ink:#0b0705; --night:#140d09; --panel:#1c130d; --line:#3a2a1e;
+  --saffron:#ffb020; --ember:#ff7a1a; --jade:#2ee6a6; --lotus:#ff5d8f; --mist:#b8a690; --white:#fbf3ea;
+}
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif}
+html,body{height:100%;overflow:hidden;background:var(--ink);color:var(--white)}
+body{background:radial-gradient(120% 70% at 50% 0%,#2b1a0d 0%,var(--ink) 60%);}
+#app{position:fixed;inset:0;display:flex;flex-direction:column;padding-top:env(safe-area-inset-top)}
+
+/* header */
+.hdr{display:flex;align-items:center;gap:10px;padding:12px 14px 6px}
+.avatar{width:42px;height:42px;border-radius:14px;background:linear-gradient(135deg,var(--saffron),var(--lotus));display:grid;place-items:center;font-weight:800;color:#1a0f00;overflow:hidden;flex-shrink:0}
+.avatar img{width:100%;height:100%;object-fit:cover}
+.who{flex:1;min-width:0}
+.who b{display:block;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.who small{font-size:11px;color:var(--saffron)}
+.chip{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:7px 10px;font-size:11px;color:var(--mist);text-align:center;line-height:1.3}
+.chip b{display:block;color:var(--jade);font-size:13px}
+.iconbtn{background:var(--panel);border:1px solid var(--line);border-radius:12px;width:38px;height:38px;color:var(--white);font-size:16px;position:relative}
+.dot{position:absolute;top:-4px;right:-4px;background:var(--lotus);border-radius:9px;font-size:9px;padding:1px 5px;font-weight:700}
+
+/* screens */
+.screen{display:none;flex:1;overflow-y:auto;padding:6px 14px 96px;flex-direction:column}
+.screen.on{display:flex}
+.screen.mine{justify-content:space-between;overflow:hidden}
+
+/* balance */
+.bal{text-align:center;margin-top:4px}
+.bal small{font-size:12px;color:var(--mist)}
+.bal .n{font-size:46px;font-weight:900;letter-spacing:-1px;color:var(--saffron);text-shadow:0 0 28px rgba(255,176,32,.35)}
+.bal .n span{font-size:15px;color:var(--mist);font-weight:600;letter-spacing:0;margin-left:4px}
+.rankrow{margin:6px auto 0;width:82%}
+.bar{height:7px;border-radius:4px;background:#0a0603;overflow:hidden;border:1px solid var(--line)}
+.bar i{display:block;height:100%;width:0;background:linear-gradient(90deg,var(--ember),var(--saffron));transition:width .8s}
+.rankrow div.t{display:flex;justify-content:space-between;font-size:11px;color:var(--mist);margin-bottom:4px}
+
+/* hero: the sutra dial */
+.hero{position:relative;width:min(72vw,300px);aspect-ratio:1;margin:0 auto;display:grid;place-items:center}
+.ring{position:absolute;inset:0;transform:rotate(-90deg)}
+.ring circle{fill:none;stroke-width:6;stroke-linecap:round}
+.ring .bg{stroke:var(--line)}
+.ring .fg{stroke:url(#g);stroke-dasharray:283;stroke-dashoffset:283;transition:stroke-dashoffset 1s linear}
+.mandala{position:absolute;inset:14%;opacity:.55;animation:spin 40s linear infinite;animation-play-state:paused}
+.on-air .mandala{animation-play-state:running;opacity:.9}
+@keyframes spin{to{transform:rotate(360deg)}}
+.core{position:relative;width:62%;aspect-ratio:1;border-radius:50%;border:0;color:#2a1600;
+  background:radial-gradient(circle at 35% 30%,#ffe08a,var(--saffron) 45%,var(--ember));
+  box-shadow:0 0 0 6px rgba(255,176,32,.12),0 14px 40px rgba(255,122,26,.35),inset 0 -8px 18px rgba(120,50,0,.35);
+  display:flex;flex-direction:column;align-items:center;justify-content:center;transition:transform .08s}
+.core:active{transform:scale(.94)}
+.core .sym{font-size:44px;line-height:1;font-weight:900}
+.core .lbl{font-size:15px;font-weight:800;margin-top:4px}
+.core .sub{font-size:11px;font-weight:600;opacity:.75}
+.core.idle{animation:breathe 2.4s ease-in-out infinite}
+@keyframes breathe{50%{box-shadow:0 0 0 14px rgba(255,176,32,.08),0 14px 50px rgba(255,122,26,.5),inset 0 -8px 18px rgba(120,50,0,.35)}}
+.core.live{background:radial-gradient(circle at 35% 30%,#8ff5cf,var(--jade) 50%,#0f9f73);color:#012a1d;box-shadow:0 0 0 6px rgba(46,230,166,.12),0 14px 40px rgba(46,230,166,.3)}
+.float{position:absolute;font-weight:800;color:var(--jade);pointer-events:none;animation:up 1s ease-out forwards;font-size:16px}
+@keyframes up{to{transform:translateY(-70px);opacity:0}}
+
+/* bottom of mine screen */
+.strip{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.tile{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:12px;text-align:left;color:var(--white)}
+.tile small{display:block;font-size:11px;color:var(--mist)}
+.tile b{font-size:15px}
+.tile.boost{border-color:var(--lotus);background:linear-gradient(135deg,#3b2214,var(--panel))}
+.tile.boost b{color:var(--lotus)}
+
+/* cards */
+h2{font-size:20px;margin:8px 0 12px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:18px;padding:14px;margin-bottom:12px}
+.card h3{font-size:14px;margin-bottom:4px}
+.card p{font-size:12px;color:var(--mist);margin-bottom:10px;line-height:1.45}
+.btn{display:block;width:100%;border:0;border-radius:12px;padding:12px;font-weight:800;font-size:14px;color:#1a0f00;background:linear-gradient(90deg,var(--saffron),var(--ember));text-align:center;text-decoration:none;margin-top:8px}
+.btn.alt{background:var(--line);color:var(--white)}
+.btn.tg{background:#0088cc;color:#fff}
+.btn:disabled{opacity:.45}
+.row{display:flex;justify-content:space-between;font-size:13px;padding:6px 0;color:var(--mist)}
+.row b{color:var(--white)}
+.soon{border:1px dashed var(--line);border-radius:12px;padding:12px;text-align:center;font-size:12px;color:var(--mist)}
+.share{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.share .btn{margin:0;padding:10px;font-size:12px;color:#fff}
+.lb{display:flex;justify-content:space-between;align-items:center;padding:9px 0;border-bottom:1px solid var(--line);font-size:13px}
+.lb small{display:block;color:var(--jade);font-size:11px}
+.lb b.s{color:var(--saffron)}
+input[type=text]{width:100%;padding:11px;border-radius:10px;border:1px solid var(--line);background:var(--ink);color:#fff;font-size:14px;margin:4px 0 10px}
+input[type=file]{font-size:12px;color:var(--mist);margin:4px 0 10px;width:100%}
+label{font-size:11px;color:var(--mist)}
+
+/* tab bar */
+.tabs{position:fixed;left:10px;right:10px;bottom:calc(10px + env(safe-area-inset-bottom));display:flex;background:rgba(28,19,13,.95);backdrop-filter:blur(12px);border:1px solid var(--line);border-radius:22px;padding:6px;z-index:50}
+.tab{flex:1;text-align:center;padding:8px 0;border-radius:16px;font-size:10px;color:var(--mist)}
+.tab i{display:block;font-style:normal;font-size:19px;margin-bottom:2px}
+.tab.on{background:linear-gradient(180deg,#3d2a1a,#2b1d12);color:var(--saffron)}
+
+/* modal */
+.modal{display:none;position:fixed;inset:0;background:rgba(8,4,2,.82);z-index:100;align-items:flex-end;backdrop-filter:blur(4px)}
+.sheet{width:100%;max-height:78%;overflow-y:auto;background:var(--night);border-radius:24px 24px 0 0;padding:18px 16px calc(18px + env(safe-area-inset-bottom));border-top:1px solid var(--line)}
+.sheet h3{font-size:17px;margin-bottom:10px;color:var(--saffron)}
+.item{padding:9px 0;border-bottom:1px solid var(--line);font-size:12px;color:var(--mist)}
+.item b{color:var(--white);display:block;font-size:12px}
+@media (prefers-reduced-motion:reduce){*{animation:none!important}}
+</style><style>
+.screen.mine{overflow-y:auto;justify-content:flex-start;gap:12px}
+.hero{width:min(60vw,250px)}
+.card.supply{margin:0}
+.boosts{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:8px}
+.bst{border:1px solid var(--lotus);background:linear-gradient(135deg,#3b2214,var(--panel));color:var(--white);border-radius:14px;padding:12px 4px;font-weight:800;font-size:16px}
+.bst small{display:block;font-size:10px;font-weight:600;color:var(--mist);margin-top:2px}
+.bst:disabled{opacity:.4}
+.bst.act{border-color:var(--jade);background:linear-gradient(135deg,#0f3d34,var(--panel));opacity:1}
+.bst.act small{color:var(--jade)}
+.auth{position:fixed;inset:0;z-index:200;background:var(--ink);display:none;flex-direction:column;overflow-y:auto;padding:calc(20px + env(safe-area-inset-top)) 18px 30px}
+.auth h1{font-size:26px;margin:10px 0 4px;color:var(--saffron)}
+.auth p.s{font-size:13px;color:var(--mist);margin-bottom:16px}
+.seg{display:flex;background:var(--panel);border-radius:12px;padding:4px;margin-bottom:14px}
+.seg button{flex:1;border:0;background:none;color:var(--mist);padding:10px;border-radius:9px;font-weight:700}
+.seg button.on{background:var(--line);color:var(--white)}
+.two{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.idrow{display:flex;gap:8px}.idrow input{flex:1}.idrow button{width:auto;padding:0 14px;margin:4px 0 10px;border-radius:10px;border:0;background:var(--line);color:var(--white);font-weight:700;font-size:12px}
+input[type=password],input[type=email],input[type=tel]{width:100%;padding:11px;border-radius:10px;border:1px solid var(--line);background:var(--ink);color:#fff;font-size:14px;margin:4px 0 10px}
+.err{color:var(--lotus);font-size:12px;min-height:16px;margin:2px 0 6px}
+.ok{color:var(--jade)} .bad{color:var(--lotus)}
+.bigpic{width:84px;height:84px;border-radius:26px;margin:0 auto 12px;font-size:32px}
+#adBox{display:none;position:fixed;inset:0;z-index:300;background:#000;flex-direction:column;align-items:center;justify-content:center}
+#adBox video{width:100%;max-height:75%;object-fit:contain}
+#adBox .bar{width:80%;margin:14px 0 8px}
+.gift{display:grid;grid-template-columns:repeat(5,1fr);gap:6px;margin:10px 0}
+.gd{background:var(--ink);border:1px solid var(--line);border-radius:10px;padding:6px 0;text-align:center;font-size:10px;color:var(--mist)}
+.gd b{display:block;font-size:12px;color:var(--white)}
+.gd.done{border-color:var(--jade);background:#0f3d34}.gd.done b{color:var(--jade)}
+.gd.now{border-color:var(--saffron);box-shadow:0 0 0 2px rgba(255,176,32,.25)}.gd.now b{color:var(--saffron)}
+.picpick{position:relative;display:block;width:84px;margin:0 auto 8px}.picpick .bigpic{margin:0}.cam{position:absolute;right:-6px;bottom:-6px;background:var(--saffron);border-radius:50%;width:28px;height:28px;display:grid;place-items:center;font-size:14px}
+.tag{font-size:10px;font-weight:800;color:#1a0f00;background:linear-gradient(90deg,var(--saffron),var(--ember));padding:4px 9px;border-radius:20px;letter-spacing:.3px}
+
+.toast{position:fixed;left:50%;bottom:calc(108px + env(safe-area-inset-bottom));transform:translateX(-50%) translateY(12px);
+  background:#1c130d;border:1px solid var(--line);color:var(--white);padding:10px 18px;border-radius:24px;font-size:13px;
+  max-width:88%;text-align:center;opacity:0;pointer-events:none;transition:opacity .25s,transform .25s;z-index:400}
+.toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+.toast.err{border-color:var(--lotus);color:#ffd7e2}
+.ov{position:fixed;inset:0;background:rgba(8,4,2,.86);z-index:400;display:flex;align-items:center;justify-content:center;opacity:0;pointer-events:none;transition:opacity .2s}
+.ov.show{opacity:1;pointer-events:auto}
+.ovbox{background:var(--night);border:1px solid var(--line);border-radius:22px;padding:28px 30px;text-align:center;min-width:220px}
+.spinwrap{width:64px;height:64px;margin:0 auto 14px;position:relative}
+.spin{width:100%;height:100%;animation:rot 1s linear infinite;transition:opacity .2s}
+.spin circle{fill:none;stroke:var(--saffron);stroke-width:5;stroke-linecap:round;stroke-dasharray:120;stroke-dashoffset:40}
+.check{position:absolute;inset:0;width:100%;height:100%;opacity:0;transition:opacity .3s,transform .3s;transform:scale(.7)}
+.check path{fill:none;stroke:var(--jade);stroke-width:5;stroke-linecap:round;stroke-linejoin:round}
+.ov.done .spin{opacity:0}
+.ov.done .check{opacity:1;transform:scale(1)}
+@keyframes rot{to{transform:rotate(360deg)}}
+.ovtitle{font-size:17px;font-weight:800;color:var(--jade);margin-bottom:4px}
+.ovmsg{font-size:13px;color:var(--mist)}
+.meterCap{font-size:11px;color:var(--saffron);text-align:center;margin-top:6px;font-weight:700}
+.tag{font-size:10px;font-weight:800;color:#1a0f00;background:linear-gradient(90deg,var(--saffron),var(--ember));padding:4px 9px;border-radius:20px;letter-spacing:.3px}
+@media (prefers-reduced-motion:reduce){.spin{animation:none}}
+
+.hist{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;background:none;border:0}
+.histIcon{position:relative;width:38px;height:38px;border-radius:50%;background:var(--panel);border:1px solid var(--line);display:grid;place-items:center;font-size:16px}
+.histLabel{font-size:9px;color:var(--mist);font-weight:700}
+.tagline{font-size:11px;color:var(--saffron);font-weight:700;margin-bottom:6px}
+</style>
+</head>
+<body>
+<div id="app">
+  <div class="hdr">
+    <div class="avatar" id="uPic" onclick="switchTab('profile')">S</div>
+    <div class="who"><b id="uName">Miner</b><small id="rankBox">🪨 New Miner</small></div>
+    <div class="chip">Per hour<b id="rateHr">0</b></div>
+    <button class="hist" onclick="openSheet('actModal')"><span class="histIcon">📜<span class="dot" id="alertCount">0</span></span><span class="histLabel">History</span></button>
+    <button class="iconbtn" onclick="openSheet('annModal')" title="Alerts">🔔</button>
+  </div>
+
+  <div id="s-mine" class="screen mine on">
+    <div class="card supply">
+      <div class="row" style="padding-top:0"><span>Total supply</span><b>50,000,000,000</b></div>
+      <div class="bar"><i id="globalProgressFill"></i></div>
+      <div class="meterCap" id="globalMeterText">0% mined so far</div>
+    </div>
+    <div class="bal"><small>Your mined $SUTRA</small><div class="n" id="tokenBalance">0.000</div></div>
+
+    <div class="hero" id="hero">
+      <svg class="ring" viewBox="0 0 100 100">
+        <defs><linearGradient id="g"><stop offset="0" stop-color="#2ee6a6"/><stop offset="1" stop-color="#ffb020"/></linearGradient></defs>
+        <circle class="bg" cx="50" cy="50" r="45"/><circle class="fg" id="ringFg" cx="50" cy="50" r="45" pathLength="283"/>
+      </svg>
+      <svg class="mandala" viewBox="0 0 100 100" fill="none" stroke="#ffb020" stroke-width=".6"><circle cx="50" cy="50" r="48"/><circle cx="50" cy="50" r="36"/><g id="petals"></g></svg>
+      <button class="core idle" id="mineBtn" onclick="dialAction()">
+        <div class="sym" id="mineIcon">ॐ</div><div class="lbl" id="mineText">Start mining</div><div class="sub" id="mineSubText">Watch a video to begin</div>
+      </button>
+    </div>
+
+    <div class="strip">
+      <div class="tile"><small>Unclaimed this session</small><b id="sessionEarn">0 SUTRA</b></div>
+      <div class="tile"><small>Status</small><b id="miningStatusBox">Stopped</b></div>
+    </div>
+
+    <div class="card" style="margin:0">
+      <h3>🚀 Boosters</h3>
+      <p id="boostInfo" style="margin:0">Start mining, then unlock 2x, 3x and 4x one after another. Each needs a video.</p>
+      <div class="boosts">
+        <button class="bst" id="b1" onclick="handleBooster(1)">2x<small></small></button>
+        <button class="bst" id="b2" onclick="handleBooster(2)">3x<small></small></button>
+        <button class="bst" id="b3" onclick="handleBooster(3)">4x<small></small></button>
+      </div>
+    </div>
+  </div>
+
+  <div id="s-earn" class="screen">
+    <h2>Daily gift</h2>
+    <div class="card"><h3>30-day reward</h3><p id="giftInfo">Claim every day without missing. Day 1 = 100, Day 2 = 200 ... Day 30 = 3,000 SUTRA.</p>
+      <div class="gift" id="giftGrid"></div>
+      <button class="btn" id="giftBtn" onclick="claimDailyReward()">Claim</button></div>
+    <div class="card"><h3>📢 Announcements</h3><button class="btn alt" onclick="openSheet('annModal')">Open announcements</button></div>
+  </div>
+
+  <div id="s-friends" class="screen">
+    <h2>Friends</h2>
+    <div class="card"><h3>Community</h3>
+      <button class="btn tg" onclick="window.open(officialGroupLink,'_blank')">Join Telegram group</button>
+      <button class="btn alt" onclick="openSupport()">Contact support</button></div>
+    <div class="card"><h3>Invite friends, earn 500 $SUTRA each</h3>
+      <p>You get the bonus after your friend starts mining, claims their first session, and completes a second session.</p>
+      <div class="row">Rewarded friends<b id="refCount2">0</b></div>
+      <div class="row">Waiting for friend<b id="refWaiting">0</b></div>
+      <button class="btn" onclick="shareApp()">Share</button>
+      <button class="btn alt" onclick="copyRef()">Copy link</button></div>
+    <div class="card"><h3>🏆 Top miners</h3><div id="leaderboardList" style="font-size:13px;color:var(--mist)">Loading...</div></div>
+  </div>
+
+  <div id="s-wallet" class="screen">
+    <h2>Wallet</h2>
+    <div class="card" style="border:1px solid var(--saffron)"><h3>💸 Withdrawal</h3><p>Withdrawals open once $SUTRA is listed.</p><button class="btn alt" disabled>🔒 Withdraw — Coming soon</button></div>
+    <div class="card" style="text-align:center"><small style="color:var(--mist);font-size:11px">Total balance (mining + boosts + referrals + gifts)</small>
+      <div style="font-size:34px;font-weight:900;color:var(--saffron)" id="modalTokenBal">0.000</div></div>
+    <div class="card"><h3>Statistics</h3>
+      <div class="row">Unclaimed<b id="walletPending">0.000</b></div>
+      <div class="row">Mining sessions<b id="walletSessions">0</b></div>
+      <div class="row">Referrals<b id="walletReferrals">0</b></div>
+      <div class="row">Users joined<b id="wJoined">0</b></div>
+      <div class="row">Online now<b id="wOnline">0</b></div></div>
+    <div class="card"><h3>📜 History</h3><button class="btn alt" onclick="openSheet('actModal')">Open history</button></div>
+  </div>
+
+  <div id="s-profile" class="screen">
+    <h2>Profile</h2>
+    <div class="card" id="editCard">
+      <label class="picpick"><div class="avatar bigpic" id="bigPic">S</div><span class="cam">📷</span>
+        <input type="file" id="picUpload" accept="image/png,image/jpeg" hidden onchange="savePhoto()"></label>
+      <p style="text-align:center;margin:0 0 12px"><b style="color:var(--white)">Add profile photo</b></p>
+      <div class="two"><div><label>First name</label><input type="text" id="firstInput"></div><div><label>Surname</label><input type="text" id="lastInput"></div></div>
+      <button class="btn" id="saveProfileBtn" onclick="saveProfile()">Save profile</button>
+    </div>
+    <div class="card" id="authBox" style="display:none">
+      <div id="stCreate">
+        <div style="display:flex;justify-content:space-between;align-items:center"><h3 style="margin:0">Create account</h3><span class="tag">App Login</span></div>
+        <p class="tagline">User ID, Email & Password — Login to Sutra Mining App</p>
+        <p>Use the same User ID, email and password to open your mining data in our app.</p>
+        <div class="two"><div><label>First name</label><input type="text" id="cFirst"></div><div><label>Surname</label><input type="text" id="cLast"></div></div>
+        <label>Mobile number</label><input type="tel" id="cPhone" placeholder="+91XXXXXXXXXX">
+        <label>User ID (8–10 digits: choose your own or generate)</label>
+        <div class="idrow"><input type="text" id="cUserId" inputmode="numeric" maxlength="10" placeholder="e.g. 48291736"><button onclick="genUserId()">Generate</button></div>
+        <label>Email</label><input type="email" id="cEmail" autocomplete="email">
+        <label>Password (min 8 characters)</label><input type="password" id="cPass" autocomplete="new-password">
+        <label>Confirm password</label><input type="password" id="cPass2" autocomplete="new-password">
+        <div class="err" id="cErr"></div>
+        <button class="btn" id="verifyBtn" onclick="verifyAccount()">Verify account</button>
+        <button class="btn alt" onclick="authStep('login')">Already have an account? Log in</button>
+      </div>
+      <div id="stSent" style="display:none">
+        <h3>Check your email</h3><p id="sentText"></p>
+        <button class="btn" onclick="authStep('login')">Log in</button>
+      </div>
+      <div id="stLogin" style="display:none">
+        <div style="display:flex;justify-content:space-between;align-items:center"><h3 style="margin:0">Log in</h3><span class="tag">App Login</span></div>
+        <p class="tagline">User ID, Email & Password — Login to Sutra Mining App</p>
+        <p>Enter your User ID, email and password.</p>
+        <label>User ID</label><input type="text" id="lUserId" inputmode="numeric" maxlength="10">
+        <label>Email</label><input type="email" id="lEmail" autocomplete="email">
+        <label>Password</label><input type="password" id="lPass" autocomplete="current-password">
+        <div class="err" id="lErr"></div>
+        <button class="btn" id="loginBtn" onclick="doLogin()">Log in</button>
+        <button class="btn alt" onclick="authStep('create')">Create account</button>
+      </div>
+      <button class="btn alt" id="authClose" style="display:none" onclick="hideAuth()">Cancel</button>
+    </div>
+    <div class="card" id="accountCard"></div>
+  </div>
+
+  <div class="tabs">
+    <div class="tab on" data-t="mine" onclick="switchTab('mine')"><i>⛏️</i>Mine</div>
+    <div class="tab" data-t="earn" onclick="switchTab('earn')"><i>🎁</i>Gift</div>
+    <div class="tab" data-t="friends" onclick="switchTab('friends')"><i>👥</i>Friends</div>
+    <div class="tab" data-t="wallet" onclick="switchTab('wallet')"><i>💳</i>Wallet</div>
+    <div class="tab" data-t="profile" onclick="switchTab('profile')"><i>👤</i>Profile</div>
+  </div>
+</div>
+
+<div class="toast" id="toastBox"></div>
+<div class="ov" id="successOv" onclick="hideSuccess()">
+  <div class="ovbox">
+    <div class="spinwrap"><svg class="spin" viewBox="0 0 60 60"><circle cx="30" cy="30" r="24"/></svg>
+      <svg class="check" viewBox="0 0 60 60"><path d="M15 31l10 10 20-22"/></svg></div>
+    <div class="ovtitle">Successful</div>
+    <div class="ovmsg" id="ovMsg"></div>
+  </div>
+</div>
+<div class="modal" id="shareModal"><div class="sheet"><h3>Copy your link</h3>
+  <textarea id="shareTextBox" readonly style="width:100%;min-height:90px;background:var(--ink);color:#fff;border:1px solid var(--line);border-radius:10px;padding:10px;font-size:13px" onclick="this.select()"></textarea>
+  <button class="btn alt" onclick="document.getElementById(\'shareTextBox\').select();document.execCommand(\'copy\');showToast(\'Copied to clipboard\')">Copy</button>
+  <button class="btn" onclick="closeSheet(\'shareModal\')">Done</button></div></div>
+
+<!-- video ad player -->
+<div id="adBox">
+  <video id="adVideo" playsinline muted loop></video>
+  <div id="adPh" style="display:none;font-size:46px;text-align:center">🎬<div style="font-size:14px;color:#b8a690;margin-top:8px">Video ad</div></div>
+  <div class="bar"><i id="adBar" style="width:0"></i></div>
+  <div id="adText" style="font-size:13px;color:#fff"></div>
+  <button class="btn alt" id="adClose" style="width:60%">Cancel</button>
+</div>
+
+<div class="modal" id="welcomeModal"><div class="sheet"><h3>Welcome to Sutra Token</h3>
+  <p style="font-size:13px;color:var(--mist);margin-bottom:8px;line-height:1.5">Start a 24-hour mining session and claim your $SUTRA when it ends. Join our community for updates and support.</p>
+  <button class="btn tg" onclick="window.open(officialGroupLink,'_blank')">Join Telegram group</button>
+  <button class="btn" onclick="closeSheet('welcomeModal')">Start mining</button></div></div>
+<div class="modal" id="actModal"><div class="sheet"><h3>History</h3><div id="activityList"></div><button class="btn alt" onclick="closeSheet('actModal')">Close</button></div></div>
+<div class="modal" id="annModal"><div class="sheet"><h3>Announcements</h3><div id="announcementList">Loading...</div><button class="btn alt" onclick="closeSheet('annModal')">Close</button></div></div>
+
+<script>
+const officialGroupLink = "https://t.me/+qBuycU3TidEzMTJl";
+const supportLink = "https://t.me/call/WmasSD9vLGT2vzz_kOebbouFQ4w";
+
+// ===== VIDEO ADS: put your real hosted video URLs here (MP4). Played in this order, repeating. =====
+const AD_SEQUENCE = [15, 20, 25, 30];            // seconds each video must be watched
+const AD_VIDEOS   = ["", "", "", ""];   // ❤️ PUT YOUR 4 VIDEO URLs HERE (MP4), e.g. "https://yourcdn.com/ad15.mp4". Empty = timer screen only
+
+const TOTAL_SUPPLY = 50e9, DAY = 864e5, BOOST_MS = 144e5, BASE = 2000/86400;
+const BOOST_BONUS = {1:500, 2:500, 3:1000};             // extra SUTRA over the 4-hour boost window
+const BOOST_DAILY_LIMIT = 2;                            // booster can be started this many times per 24h
+const boostRate = () => boostLevel ? BOOST_BONUS[boostLevel]/(BOOST_MS/1000) : 0;
+const $ = id => document.getElementById(id);
+const dayNum = () => Math.floor((Date.now()-new Date().getTimezoneOffset()*6e4)/864e5);
+function showToast(msg, kind='info'){
+  const t=$('toastBox'); t.textContent=msg; t.className='toast show '+(kind==='error'?'err':'');
+  clearTimeout(window._toastT); window._toastT=setTimeout(()=>t.classList.remove('show'),2600);
+}
+function showSuccess(title, msg){
+  if(msg===undefined){ msg=title; title='Successful'; }
+  const ov=$('successOv'); ov.querySelector('.ovtitle').innerText=title; $('ovMsg').innerText=msg; ov.classList.remove('done'); ov.classList.add('show');
+  clearTimeout(window._ovSpin); clearTimeout(window._ovHide);
+  window._ovSpin=setTimeout(()=>ov.classList.add('done'),650);
+  window._ovHide=setTimeout(hideSuccess,2300);
+}
+function hideSuccess(){ $('successOv').classList.remove('show'); }
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+$('petals').innerHTML = Array.from({length:12},(_,i)=>`<ellipse cx="50" cy="20" rx="5" ry="13" transform="rotate(${i*30} 50 50)"/>`).join("");
+
+const tg = window.Telegram?.WebApp;
+if(tg){ tg.expand(); tg.ready(); try{ tg.setHeaderColor('#0b0705'); tg.setBackgroundColor('#0b0705'); tg.disableVerticalSwipes?.(); tg.setBottomBarColor?.('#0b0705'); }catch(e){} }
+const tgUser = tg?.initDataUnsafe?.user;
+const getUserId = () => String(tgUser?.id || window.docKey || "");
+
+function switchTab(t){
+  document.querySelectorAll('.screen').forEach(e=>e.classList.remove('on'));
+  document.querySelectorAll('.tab').forEach(e=>e.classList.toggle('on', e.dataset.t===t));
+  $('s-'+t).classList.add('on');
+  if(t==='earn' && loaded) renderGift();
+}
+const openSheet = id => $(id).style.display='flex', closeSheet = id => $(id).style.display='none';
+document.querySelectorAll('.modal').forEach(m=>m.addEventListener('click',e=>{ if(e.target===m) m.style.display='none'; }));
+
+// ===== state =====
+let loaded=false, profile={}, authUser=null;
+let balance=0, pending=0, miningStart=0, boostLevel=0, boostEnd=0, lastCalc=Date.now();
+let totalSessions=0, referralCount=0, adIndex=0, activity=[], referredBy="", claimedSessions=0, dailyStreak=0, lastDailyDay=-1, refWaiting=0, boostDay=-1, boostUses=0;
+let globalMined=0, globalUsers=0, onlineUsers=0, tick=0;
+
+const snapshot = () => ({balance, pending, miningStart, boostLevel, boostEnd, lastCalc, totalSessions, referralCount, adIndex, activity, referredBy, claimedSessions, dailyStreak, lastDailyDay, boostDay, boostUses});
+async function saveNow(extra={}){ const u=getUserId(); if(!loaded||!u) return; await window.saveUserData(u,{...snapshot(),...extra}); pushLeaderboardRow(); }
+function log(m){ activity.unshift({m, t:new Date().toLocaleString()}); activity.length=Math.min(activity.length,50); renderActivity(); }
+function renderActivity(){
+  $('alertCount').innerText = activity.length;
+  $('activityList').innerHTML = activity.map(n=>`<div class="item"><b>${esc(n.t)}</b>${esc(n.m)}</div>`).join("") || "No activity yet";
+}
+
+// ===== profile / account =====
+function displayName(){ return profile.name || tgUser?.first_name || "Miner"; }
+function renderProfile(){
+  const n = displayName(), pic = profile.photo ? `<img src="${esc(profile.photo)}" alt="">` : esc(n.charAt(0).toUpperCase());
+  $('uName').innerText = n; $('uPic').innerHTML = pic; $('bigPic').innerHTML = pic;
+  $('firstInput').value = profile.firstName || tgUser?.first_name || ""; $('lastInput').value = profile.lastName || tgUser?.last_name || "";
+  const c = $('accountCard');
+  const v=authUser?.emailVerified;
+  if(profile.userId && authUser && v){
+    c.innerHTML = `<h3>Account</h3>
+      <div class="row">User ID<b>${esc(profile.userId)}</b></div>
+      <div class="row">Mobile<b>${esc(profile.phone||'—')}</b></div>
+      <div class="row">Email<b>${esc(profile.email)}</b></div>
+      <div class="row">Status<b class="ok">✓ Verified</b></div>
+      <button class="btn alt" onclick="logout()">Log out</button>`;
+  } else if(profile.userId){
+    c.innerHTML = `<h3>Account created</h3><p>Open the verification link we emailed you, then log in with your User ID, email and password.</p><button class="btn" onclick="showAuth('login',true)">Log in</button>`;
+  } else {
+    c.innerHTML = `<h3>Create account & app login</h3><p class="tagline">User ID, Email & Password — Login to Sutra Mining App</p><p>Create an account with a User ID, email and password. Use them to log in to our app and get all your mining data there.</p><button class="btn" onclick="showAuth('create',true)">Create account</button><button class="btn alt" onclick="showAuth('login',true)">Log in</button>`;
+  }
+}
+async function saveProfile(){
+  const first=$('firstInput').value.trim(), last=$('lastInput').value.trim(), f=$('picUpload').files[0], b=$('saveProfileBtn');
+  if(!first){ showToast("Enter your first name","error"); return; }
+  if(f && f.size>2*1024*1024){ showToast("Image must be under 2MB","error"); return; }
+  if(f && !["image/jpeg","image/png"].includes(f.type)){ showToast("Only JPG or PNG allowed","error"); return; }
+  b.disabled=true; b.innerText="Saving...";
+  try{
+    if(f) profile.photo = await window.uploadProfileImage(getUserId(), f);
+    Object.assign(profile,{firstName:first,lastName:last,name:(first+" "+last).trim()});
+    await window.saveUserData(getUserId(),{firstName:first,lastName:last,name:profile.name,photo:profile.photo||""});
+    renderProfile(); showSuccess("Profile saved");
+  }catch(e){ showToast("Could not save: "+e.message,"error"); }
+  finally{ b.disabled=false; b.innerText="Save profile"; $('picUpload').value=""; }
+}
+async function savePhoto(){
+  const f=$('picUpload').files[0]; if(!f) return;
+  if(f.size>2*1024*1024){ showToast("Image must be under 2MB","error"); $('picUpload').value=""; return; }
+  if(!["image/jpeg","image/png"].includes(f.type)){ showToast("Only JPG or PNG allowed","error"); $('picUpload').value=""; return; }
+  $('bigPic').style.opacity=.5;
+  try{
+    profile.photo=await window.uploadProfileImage(getUserId(),f);
+    await window.saveUserData(getUserId(),{photo:profile.photo});
+    renderProfile(); showToast("Photo updated");
+  }catch(e){ showToast("Could not upload photo: "+e.message,"error"); }
+  finally{ $('bigPic').style.opacity=1; $('picUpload').value=""; }
+}
+async function resendVerify(){ try{ await window.resendVerification(); showSuccess("Verification email sent","Check your inbox."); }catch(e){ showToast(e.message,"error"); } }
+async function logout(){ await saveNow(); await window.logoutAccount(); location.reload(); }
+
+// ===== create account -> verify -> log in =====
+function showAuth(step, closable){
+  $('authBox').style.display='block'; $('authClose').style.display=closable?'block':'none';
+  $('accountCard').style.display='none';
+  authStep(step); switchTab('profile');
+}
+function hideAuth(){ $('authBox').style.display='none'; $('accountCard').style.display='block'; }
+function authStep(st){ ['Create','Sent','Login'].forEach(n=>$('st'+n).style.display = n.toLowerCase()===st?'block':'none'); }
+function genUserId(){
+  const r=()=>crypto.getRandomValues(new Uint32Array(1))[0], len=8+(r()%3);
+  let id=String(1+r()%9); while(id.length<len) id+=r()%10;
+  $('cUserId').value=id;
+}
+async function verifyAccount(){
+  const err=$('cErr'), b=$('verifyBtn'), first=$('cFirst').value.trim(), last=$('cLast').value.trim(),
+        phone=$('cPhone').value.trim().replace(/[\s-]/g,""), id=$('cUserId').value.trim(), email=$('cEmail').value.trim(), pw=$('cPass').value;
+  err.innerText='';
+  if(!first){ err.innerText='Enter your first name.'; return; }
+  if(!/^\+?\d{8,15}$/.test(phone)){ err.innerText='Enter a valid mobile number.'; return; }
+  if(!/^\d{8,10}$/.test(id)){ err.innerText='User ID must be 8 to 10 digits.'; return; }
+  if(!/^\S+@\S+\.\S+$/.test(email)){ err.innerText='Enter a valid email.'; return; }
+  if(pw.length<8){ err.innerText='Password must be at least 8 characters.'; return; }
+  if(pw!==$('cPass2').value){ err.innerText='Passwords do not match.'; return; }
+  b.disabled=true; b.innerText='Please wait...';
+  try{
+    await window.registerAccount({first,last,phone,userId:id,email,password:pw});
+    $('sentText').innerText=`We sent a verification link to ${email}. Open it, then log in with your User ID, email and password.`;
+    $('lUserId').value=id; $('lEmail').value=email; authStep('sent');
+  }catch(e){ err.innerText = e.code==='auth/email-already-in-use' ? 'This email is already registered. Log in instead.' : e.message; }
+  finally{ b.disabled=false; b.innerText='Verify account'; }
+}
+async function doLogin(){
+  const err=$('lErr'), b=$('loginBtn'), id=$('lUserId').value.trim(), email=$('lEmail').value.trim(), pw=$('lPass').value;
+  err.innerText='';
+  if(!/^\d{8,10}$/.test(id) || !email || !pw){ err.innerText='Enter your User ID, email and password.'; return; }
+  b.disabled=true; b.innerText='Please wait...';
+  try{ await window.loginAccount(id,email,pw); location.reload(); }
+  catch(e){ err.innerText=e.message; b.disabled=false; b.innerText='Log in'; }
+}
+
+// ===== mining =====
+function settle(now=Date.now()){
+  if(!miningStart){ lastCalc=now; return; }
+  const t0=Math.max(lastCalc,miningStart), t1=Math.min(now,miningStart+DAY);
+  if(t1>t0){
+    let bs=0;
+    if(boostLevel>0) bs=Math.max(0,Math.min(t1,boostEnd)-Math.max(t0,boostEnd-BOOST_MS))/1000;
+    const secs=(t1-t0)/1000;
+    pending += BASE*(secs-bs) + (BASE+boostRate())*bs;
+    if(balance+pending>TOTAL_SUPPLY) pending=Math.max(0,TOTAL_SUPPLY-balance);
+  }
+  lastCalc=now;
+  if(boostLevel>0 && now>=boostEnd){ log(`🚀 Boost ended (was ${["2x","3x","4x"][boostLevel-1]})`); boostLevel=0; }
+}
+const mState = (now=Date.now()) => !miningStart ? 'idle' : now<miningStart+DAY ? 'mining' : 'done';
+const fmt = ms => `${Math.floor(ms/36e5)}h ${Math.floor(ms%36e5/6e4)}m ${Math.floor(ms%6e4/1e3)}s`;
+const RANKS=[[1e6,"👑 Legend Miner"],[5e5,"💎 Diamond Miner"],[1e5,"🥇 Gold Miner"],[5e4,"🥈 Silver Miner"],[1e4,"🥉 Bronze Miner"],[0,"🪨 New Miner"]];
+const getRank = b => RANKS.find(r=>b>=r[0])[1];
+
+function render(){
+  const now=Date.now(), st=mState(now), total=balance+pending;
+  $('tokenBalance').innerText=total.toFixed(3); $('modalTokenBal').innerText=balance.toFixed(3);
+  $('sessionEarn').innerText=pending.toFixed(3)+" SUTRA"; $('walletPending').innerText=pending.toFixed(3);
+  $('walletSessions').innerText=totalSessions; $('walletReferrals').innerText=referralCount; $('refCount2').innerText=referralCount;
+  $('wJoined').innerText=globalUsers.toLocaleString(); $('wOnline').innerText=onlineUsers;
+  $('rankBox').innerText=getRank(total); $('refWaiting').innerText=refWaiting;
+  const boosting = boostLevel>0 && now<boostEnd;
+  $('rateHr').innerText = st==='mining' ? Math.round((BASE+(boosting?boostRate():0))*3600).toLocaleString() : "0";
+  const btn=$('mineBtn'), hero=$('hero');
+  hero.classList.toggle('on-air',st==='mining'); btn.classList.toggle('live',st!=='idle'); btn.classList.toggle('idle',st==='idle');
+  btn.disabled = st==='mining';
+  if(st==='mining'){
+    const left=miningStart+DAY-now;
+    $('mineIcon').innerText="⛏️"; $('mineText').innerText="Mining"; $('mineSubText').innerText=fmt(left)+" left";
+    $('ringFg').style.strokeDashoffset=283*(left/DAY); $('miningStatusBox').innerHTML='<span class="ok">🟢 Active</span>';
+  } else if(st==='done'){
+    $('mineIcon').innerText="🎁"; $('mineText').innerText="Claim"; $('mineSubText').innerText=pending.toFixed(2)+" SUTRA";
+    $('ringFg').style.strokeDashoffset=0; $('miningStatusBox').innerHTML='<span class="ok">✅ Completed</span>';
+  } else {
+    $('mineIcon').innerText="ॐ"; $('mineText').innerText="Start mining"; $('mineSubText').innerText="Watch a video to begin";
+    $('ringFg').style.strokeDashoffset=283; $('miningStatusBox').innerHTML='<span class="bad">🔴 Stopped</span>';
+  }
+  const labels=["2x","3x","4x"];
+  for(let n=1;n<=3;n++){
+    const b=$('b'+n), act=boostLevel>=n;
+    b.classList.toggle('act',act); b.disabled = act || !(st==='mining' && boostLevel===n-1);
+    b.querySelector('small').innerText = act ? `+${BOOST_BONUS[n]}` : (st==='mining' && boostLevel===n-1 ? "Watch video" : "Locked");
+  }
+  const usesLeft = Math.max(0, BOOST_DAILY_LIMIT-(boostDay===dayNum()?boostUses:0));
+  $('boostInfo').innerText = boostLevel>0 ? `${labels[boostLevel-1]} boost ends in ${fmt(boostEnd-now)}. Next boosts share this timer.` : `Unlock 2x, then 3x, then 4x — each needs a video. ${usesLeft} of ${BOOST_DAILY_LIMIT} boosts left today.`;
+  const pct=globalMined/TOTAL_SUPPLY*100;
+  $('globalProgressFill').style.width=pct+'%';
+  $('globalMeterText').innerText=(pct>0&&pct<0.01?'<0.01':pct.toFixed(pct<1?2:1))+'% mined so far';
+}
+function loop(){
+  settle(); render();
+  if(++tick%5===0) saveNow();
+}
+
+async function dialAction(){
+  if(!getUserId()){ showToast(window.linkError?'Could not connect — see Profile for details':'Please log in from the Profile tab first.','error'); switchTab('profile'); return; }
+  const st=mState();
+  if(st==='done'){
+    try{ await playAd(); }catch(e){ return; }
+    if(mState()!=='done') return;
+    settle(); const claimed=pending; balance+=pending; claimedSessions++; log(`✅ Claimed ${claimed.toFixed(3)} SUTRA`); pending=0; miningStart=0; boostLevel=0; boostEnd=0;
+    await saveNow(); render(); showSuccess(`${claimed.toFixed(3)} SUTRA added to your balance`);
+    if(referredBy && claimedSessions>=2) window.refMarkQualified(getUserId()).catch(()=>{});
+    return;
+  }
+  if(st!=='idle') return;
+  if(globalMined>=TOTAL_SUPPLY){ showToast("Total supply has been fully mined.","error"); return; }
+  try{ await playAd(); }catch(e){ return; }
+  miningStart=Date.now(); lastCalc=miningStart; pending=0; boostLevel=0; totalSessions++;
+  log("⛏️ 24-hour mining started"); await saveNow(); render();
+}
+async function handleBooster(n){
+  if(!getUserId()){ showToast(window.linkError?'Could not connect — see Profile for details':'Please log in from the Profile tab first.','error'); switchTab('profile'); return; }
+  if(mState()!=='mining' || boostLevel!==n-1) return;
+  if(boostDay!==dayNum()){ boostDay=dayNum(); boostUses=0; }
+  if(n===1 && boostUses>=BOOST_DAILY_LIMIT){ showToast(`You can use the booster only ${BOOST_DAILY_LIMIT} times a day. Try again tomorrow.`,'error'); return; }
+  try{ await playAd(); }catch(e){ return; }
+  settle();                                    // close the previous rate first
+  if(mState()!=='mining' || boostLevel!==n-1) return;
+  if(n===1){ boostEnd=Date.now()+BOOST_MS; boostUses++; }   // 3x and 4x share the 2x timer and don't count as a new use
+  boostLevel=n; log(`🚀 ${['2x','3x','4x'][n-1]} boost activated (+${BOOST_BONUS[n]} SUTRA / 4h)`); await saveNow(); render();
+}
+
+// ===== video ads =====
+function playAd(){
+  return new Promise((resolve,reject)=>{
+    const i=adIndex%AD_SEQUENCE.length, secs=AD_SEQUENCE[i], url=AD_VIDEOS[i];
+    const box=$('adBox'), v=$('adVideo'); let left=secs, done=false;
+    v.style.display=url?'block':'none'; $('adPh').style.display=url?'none':'block';
+    if(url){ v.src=url; v.play().catch(()=>{}); }
+    box.style.display='flex';
+    $('adClose').innerText="Cancel"; $('adBar').style.width="0";
+    const finish=(ok)=>{ clearInterval(t); v.pause(); v.removeAttribute('src'); box.style.display='none'; $('adClose').onclick=null; if(ok){ adIndex++; resolve(); } else reject(); };
+    const paint=()=>{ $('adText').innerText=`Reward in ${left}s`; $('adBar').style.width=((secs-left)/secs*100)+'%'; };
+    paint();
+    const t=setInterval(()=>{ if(document.hidden) return; left--; paint(); if(left<=0){ done=true; $('adText').innerText="Done"; $('adClose').innerText="Get reward"; clearInterval(t); } },1000);
+    $('adClose').onclick=()=>finish(done);
+  });
+}
+
+// ===== rewards / referral =====
+function nextGiftDay(){ const t=dayNum(); if(lastDailyDay===t) return 0; let n=(lastDailyDay===t-1)?dailyStreak+1:1; return n>30?1:n; }
+function renderGift(){
+  const t=dayNum(), live=lastDailyDay>=t-1?dailyStreak:0, nx=nextGiftDay(); let h="";
+  for(let n=1;n<=30;n++) h+=`<div class="gd ${n<=live&&!(nx===1&&live===30)?'done':''} ${n===nx?'now':''}">Day ${n}<b>${n*100}</b></div>`;
+  $('giftGrid').innerHTML=h; const b=$('giftBtn');
+  b.disabled=!nx; b.innerText = nx ? `Watch video & claim ${nx*100} SUTRA` : "Claimed today. Come back tomorrow";
+}
+async function claimDailyReward(){
+  if(!getUserId()){ showToast(window.linkError?'Could not connect — see Profile for details':'Please log in from the Profile tab first.','error'); switchTab('profile'); return; }
+  const day=nextGiftDay(); if(!day){ showToast("Already claimed today. Come back tomorrow."); return; }
+  const streakBroken = day===1 && dailyStreak>1;
+  try{ await playAd(); }catch(e){ return; }
+  if(!nextGiftDay()) return;
+  if(streakBroken) log(`⏳ Daily gift streak expired after Day ${dailyStreak} — restarting from Day 1`);
+  balance+=day*100; dailyStreak=day; lastDailyDay=dayNum(); log(`🎁 Day ${day} gift claimed (${day*100} SUTRA)`);
+  await saveNow(); renderGift(); render(); showSuccess(`Day ${day} gift claimed: ${(day*100).toLocaleString()} SUTRA`);
+}
+async function pushLeaderboardRow(){
+  if(!getUserId()) return;
+  const total=balance+pending;
+  try{ await window.saveLeaderboardRow(getUserId(), {
+    name: (profile.name||"Miner").substring(0,3)+"***", balance: total, rank: getRank(total),
+    online: !document.hidden, lastHeartbeat: Date.now()
+  }); }catch(e){}
+}
+async function loadLeaderboard(){
+  // reads only the public, masked "leaderboard" collection — never the private "users" collection
+  try{
+    const snap=await window.fsGetDocs(window.fsCollection(window.db,"leaderboard"));
+    globalUsers=snap.size; let users=[], total=0; onlineUsers=0;
+    snap.forEach(d=>{ const x=d.data(); total+=(x.balance||0); const hb=x.lastHeartbeat||0; if(x.online&&hb>0&&Date.now()-hb<12e4) onlineUsers++;
+      users.push({name:x.name||"Miner", balance:x.balance||0, rank:x.rank||getRank(x.balance||0)}); });
+    globalMined=total; users.sort((a,b)=>b.balance-a.balance);
+    $('leaderboardList').innerHTML=users.slice(0,10).map((u,i)=>`<div class="lb"><div>#${i+1} ${esc(u.name)}<small>${esc(u.rank)}</small></div><b class="s">${u.balance.toFixed(0)}</b></div>`).join("")||"No users yet";
+  }catch(e){ $('leaderboardList').innerText="Leaderboard unavailable"; }
+}
+async function loadAnnouncements(){
+  try{
+    const snap=await window.fsGetDocs(window.fsCollection(window.db,"announcements")); let a=[];
+    snap.forEach(d=>a.push(d.data())); a.sort((x,y)=>(y.date||0)-(x.date||0));
+    $('announcementList').innerHTML=a.filter(i=>i.active===true).map(i=>`<div class="item"><b style="color:var(--saffron);font-size:14px">${esc(i.title||"Announcement")}</b>${esc(i.message||"")}</div>`).join("")||"No active announcements.";
+  }catch(e){ $('announcementList').innerText="Announcements unavailable"; }
+}
+
+const PLAY_STORE_LINK = "";   // ❤️ PUT YOUR PLAY STORE LINK HERE when the app is live
+async function copyText(t){
+  try{ await navigator.clipboard.writeText(t); showToast("Copied to clipboard"); return; }catch(e){}
+  $('shareTextBox').value=t; openSheet('shareModal');
+}
+function setupShare(){
+  const refLink=`https://t.me/SutraTokenBot?start=ref_${getUserId()}`;
+  const msg=`🚀 Mine $SUTRA free! Join with my link and start earning.`;
+  const text=`${msg}\n${refLink}`+(PLAY_STORE_LINK?`\n\nGet the app: ${PLAY_STORE_LINK}`:"");
+  window.shareApp=async()=>{
+    if(navigator.share){ try{ await navigator.share({title:'Sutra Token Mining',text}); return; }catch(e){ if(e.name==='AbortError') return; } }
+    if(tg?.openTelegramLink){ tg.openTelegramLink(`https://t.me/share/url?url=${encodeURIComponent(refLink)}&text=${encodeURIComponent(msg)}`); return; }
+    copyText(text);
+  };
+  window.copyRef=()=>copyText(text);
+}
+async function checkReferrals(){
+  // reads "referrals" docs where referrerId==me (read-only, no field is sensitive), then
+  // claims each qualified friend exactly once via referralClaims/{friendId} — a document
+  // this account owns and writes itself, so no cross-user write is ever needed.
+  if(!loaded) return;
+  try{
+    const list=await window.refListFor(getUserId()); let wait=0, changed=false;
+    for(const r of list){
+      if(!r.qualified) { wait++; continue; }
+      if(await window.refClaimed(r.id)) continue;
+      try{
+        await window.refClaim(r.id, getUserId());
+        balance+=500; referralCount++; changed=true; log("🤝 500 SUTRA referral reward: your friend completed 2 sessions");
+      }catch(e){}   // someone/something already claimed this friend — skip silently
+    }
+    refWaiting=wait; if(changed) await saveNow(); render();
+  }catch(e){}
+}
+function openSupport(){ tg?.openTelegramLink ? tg.openTelegramLink(supportLink) : window.open(supportLink,"_blank"); }
+
+// ===== boot (called by the Firebase module once auth state is known) =====
+window.bootApp = async function(au){
+  authUser=au; const uid=getUserId();
+  if(window.linkError){
+    $('accountCard').innerHTML = `<h3 style="color:var(--lotus)">⚠️ Could not connect</h3>
+      <p>${esc(window.linkError)}</p>
+      <p>If this is your first time testing: open Firebase Console → Authentication → Sign-in method → enable <b>Anonymous</b>, and make sure the Firestore & Storage rules have been published.</p>
+      <button class="btn alt" onclick="location.reload()">Retry</button>`;
+    showToast('Could not connect — see Profile for details','error'); return;
+  }
+  if(!uid){ showAuth('login',false); return; }        // Play Store / browser: must log in
+  let d=null;
+  try{ d=await window.loadUserData(uid); }catch(e){ showToast("Could not load your data. Check your connection and reopen the app.","error"); return; }
+  d=d||{}; profile=d;
+  balance=Math.max(0,d.balance||0); pending=Math.max(0,d.pending||0); miningStart=d.miningStart||0;
+  boostLevel=d.boostLevel||0; boostEnd=d.boostEnd||0; lastCalc=d.lastCalc||Date.now();
+  totalSessions=d.totalSessions||0; referralCount=d.referralCount||0; adIndex=d.adIndex||0; activity=d.activity||[];
+  referredBy=d.referredBy||""; claimedSessions=d.claimedSessions||0; dailyStreak=d.dailyStreak||0; lastDailyDay=(d.lastDailyDay ?? -1);
+  boostDay=(d.boostDay ?? -1); boostUses=d.boostUses||0;
+  if(tgUser && !d.name){ profile.name=(tgUser.first_name+" "+(tgUser.last_name||"")).trim(); profile.firstName=tgUser.first_name; profile.lastName=tgUser.last_name||""; }
+  loaded=true;
+  const firstTime = !d.seenWelcome;
+  const sp=tg?.initDataUnsafe?.start_param;
+  if(sp?.startsWith('ref_') && !d.referredBy){
+    const refId=sp.slice(4);
+    if(refId && refId!==uid){
+      referredBy=refId;
+      try{ await window.saveUserData(uid,{referredBy:refId}); await window.refCreate(uid,refId); }catch(e){}
+    }
+  }
+  settle();                                          // credit earnings made while the app was closed
+  await saveNow(firstTime?{seenWelcome:true}:{});
+  renderProfile(); renderActivity(); setupShare(); render();
+  if(firstTime) openSheet('welcomeModal');
+  loadAnnouncements(); loadLeaderboard();
+  renderGift(); checkReferrals();
+  setInterval(loop,1000); setInterval(loadLeaderboard,60000); setInterval(checkReferrals,60000);
+  setInterval(()=>{ if(!document.hidden) window.saveUserData(uid,{online:true,lastHeartbeat:Date.now()}); },30000);
+  document.addEventListener('visibilitychange',()=>{ if(document.hidden){ settle(); saveNow({online:false,lastHeartbeat:0}); } else { settle(); render(); } });
+  window.addEventListener('pagehide',()=>{ settle(); saveNow({online:false,lastHeartbeat:0}); });
+};
+</script>
+</body>
+</html>
+
