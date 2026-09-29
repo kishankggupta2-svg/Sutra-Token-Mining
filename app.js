@@ -168,7 +168,7 @@ onAuthStateChanged(auth, async (u) => {
 // ============================================================
 // PART 2: App logic - mining, boosts, gifts, referrals, UI, etc.
 // ============================================================
-const officialGroupLink = "https://t.me/SutraTokenOfficialgroup"; window.officialGroupLink = officialGroupLink;
+const officialGroupLink = "https://t.me/+DmrXv2aZvRU2MTVl"; window.officialGroupLink = officialGroupLink;
 const BOT_USERNAME = "SutraToken_bot";   // ❤️ your bot username (no @)
 const APP_SHORT_NAME = "";               // ❤️ optional: short name from BotFather /newapp. Leave "" if you set a Main Mini App
 let busy=false;   // one action at a time: blocks double-taps while an ad/save is in progress
