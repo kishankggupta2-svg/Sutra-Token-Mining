@@ -172,7 +172,7 @@ const officialGroupLink = "https://t.me/SutraTokenMiningOfficialgroup"; window.o
 const BOT_USERNAME = "SutraToken_bot";   // ❤️ your bot username (no @)
 const APP_SHORT_NAME = "";               // ❤️ optional: short name from BotFather /newapp. Leave "" if you set a Main Mini App
 let busy=false;   // one action at a time: blocks double-taps while an ad/save is in progress
-const supportLink = "https://t.me/call/WmasSD9vLGT2vzz_kOebbouFQ4w";
+const supportLink = "https://t.me/SutraTokenMiningOfficial";
 
 // ╔══════════════════════════════════════════════════════════════════════╗
 // ║ ❤️❤️❤️  VIDEO ADS — PUT YOUR VIDEO LINKS HERE  ❤️❤️❤️                 ║
