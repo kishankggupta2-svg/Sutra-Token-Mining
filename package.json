@@ -4,5 +4,5 @@
   "private": true,
   "type": "commonjs",
   "scripts": { "start": "node bot.js" },
-  "dependencies": { "node-telegram-bot-api": "^0.66.0" }
+  "dependencies": { "telegraf": "^4.16.3" }
 }
