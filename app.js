@@ -197,6 +197,11 @@ const VIDEO_CLAIMS = Array.from({length:10}, () => ({ url:"", seconds:20, reward
 const TOTAL_SUPPLY = 2e12, DAY = 864e5, BOOST_MS = 144e5, BASE = 2000/86400;
 const BOOST_BONUS = {1:500, 2:500, 3:1000};             // extra SUTRA over the 4-hour boost window
 const BOOST_DAILY_LIMIT = 2;                            // booster can be started this many times per 24h
+const TAP_FUEL_MAX = 500;        // full fuel tank (also = max SUTRA earnable per tank via tapping)
+const TAP_REWARD = 1;            // SUTRA per tap (normal)
+const TAP_BOOST_MS = 30*1000;    // 2x Fuel: how long the doubled reward lasts
+const TAP_COOLDOWN_MS = 10*60*1000; // 2x Fuel: cooldown before it can be used again
+const TAP_FUEL_REGEN_MS = 3000;  // +1 fuel every 3s when not full (~25 min to refill from empty)
 const boostRate = () => boostLevel ? BOOST_BONUS[boostLevel]/(BOOST_MS/1000) : 0;
 const $ = id => document.getElementById(id);
 const dayNum = () => Math.floor((Date.now()-new Date().getTimezoneOffset()*6e4)/864e5);
