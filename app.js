@@ -100,7 +100,7 @@ window.loginAccount = async (userId, email, password) => {
   try { cred = await signInWithEmailAndPassword(auth, email, password); }
   catch (e) { throw new Error("User ID, email or password is incorrect."); }
   await cred.user.reload();
-  if (!cred.user.emailVerified) { "referralClaims" }
+  if (!cred.user.emailVerified) {
     try { await sendEmailVerification(cred.user); } catch (e) {}
     await signOut(auth);
     throw new Error("Email not verified yet. We sent a new link. Open it, then log in again.");
