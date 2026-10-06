@@ -53,7 +53,7 @@ body{background:radial-gradient(120% 70% at 50% 0%,#2b1a0d 0%,var(--ink) 60%);}
 .mandala{position:absolute;inset:14%;opacity:.55;animation:spin 40s linear infinite;animation-play-state:paused}
 .on-air .mandala{animation-play-state:running;opacity:.9}
 @keyframes spin{to{transform:rotate(360deg)}}
-.core{position:relative;width:62%;aspect-ratio:1;border-radius:50%;border:0;color:#2a1600;
+.core{touch-action:manipulation;position:relative;width:62%;aspect-ratio:1;border-radius:50%;border:0;color:#2a1600;
   background:radial-gradient(circle at 35% 30%,#ffe08a,var(--saffron) 45%,var(--ember));
   box-shadow:0 0 0 6px rgba(255,176,32,.12),0 14px 40px rgba(255,122,26,.35),inset 0 -8px 18px rgba(120,50,0,.35);
   display:flex;flex-direction:column;align-items:center;justify-content:center;transition:transform .08s}
@@ -65,6 +65,7 @@ body{background:radial-gradient(120% 70% at 50% 0%,#2b1a0d 0%,var(--ink) 60%);}
 @keyframes breathe{50%{box-shadow:0 0 0 14px rgba(255,176,32,.08),0 14px 50px rgba(255,122,26,.5),inset 0 -8px 18px rgba(120,50,0,.35)}}
 .core.live{background:radial-gradient(circle at 35% 30%,#8ff5cf,var(--jade) 50%,#0f9f73);color:#012a1d;box-shadow:0 0 0 6px rgba(46,230,166,.12),0 14px 40px rgba(46,230,166,.3)}
 .float{position:absolute;font-weight:800;color:var(--jade);pointer-events:none;animation:up 1s ease-out forwards;font-size:16px}
+.float.boost{color:var(--saffron)}
 @keyframes up{to{transform:translateY(-70px);opacity:0}}
 
 /* bottom of mine screen */
@@ -205,7 +206,7 @@ input[type=password],input[type=email],input[type=tel]{width:100%;padding:11px;b
         <circle class="bg" cx="50" cy="50" r="45"/><circle class="fg" id="ringFg" cx="50" cy="50" r="45" pathLength="283"/>
       </svg>
       <svg class="mandala" viewBox="0 0 100 100" fill="none" stroke="#ffb020" stroke-width=".6"><circle cx="50" cy="50" r="48"/><circle cx="50" cy="50" r="36"/><g id="petals"></g></svg>
-      <button class="core idle" id="mineBtn" onclick="dialAction()" disabled>
+      <button class="core idle" id="mineBtn" onclick="coreTap(event)" disabled>
         <div class="sym" id="mineIcon">ॐ</div><div class="lbl" id="mineText">Loading…</div><div class="sub" id="mineSubText">Please wait</div>
       </button>
     </div>
@@ -230,8 +231,8 @@ input[type=password],input[type=email],input[type=tel]{width:100%;padding:11px;b
       <div class="row" style="padding:0 0 6px"><span>⚡ Tap Fuel</span><b id="fuelText">500 / 500</b></div>
       <div class="bar"><i id="fuelFill" style="width:100%"></i></div>
       <button class="btn" id="tapBoostBtn" style="margin-top:10px" onclick="activateTapBoost()">⚡ 2x Fuel — Watch video</button>
-        </div>
-    
+    </div>
+
     <div class="card" style="margin:0">
       <h3>🎬 Video rewards</h3>
       <div class="vrow"><span>🎬 Video claim 1</span><span class="soonpill">Coming soon</span></div><div class="vrow"><span>🎬 Video claim 2</span><span class="soonpill">Coming soon</span></div><div class="vrow"><span>🎬 Video claim 3</span><span class="soonpill">Coming soon</span></div><div class="vrow"><span>🎬 Video claim 4</span><span class="soonpill">Coming soon</span></div><div class="vrow"><span>🎬 Video claim 5</span><span class="soonpill">Coming soon</span></div><div class="vrow"><span>🎬 Video claim 6</span><span class="soonpill">Coming soon</span></div><div class="vrow"><span>🎬 Video claim 7</span><span class="soonpill">Coming soon</span></div><div class="vrow"><span>🎬 Video claim 8</span><span class="soonpill">Coming soon</span></div><div class="vrow"><span>🎬 Video claim 9</span><span class="soonpill">Coming soon</span></div><div class="vrow"><span>🎬 Video claim 10</span><span class="soonpill">Coming soon</span></div>
@@ -377,4 +378,4 @@ setTimeout(function(){ if(!window.__ready){ var m=document.getElementById('mineT
 </script>
 <script type="module" src="app.js"></script>
 </body>
-  </html>
+</html>
