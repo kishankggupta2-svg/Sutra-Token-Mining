@@ -168,11 +168,11 @@ onAuthStateChanged(auth, async (u) => {
 // ============================================================
 // PART 2: App logic - mining, boosts, gifts, referrals, UI, etc.
 // ============================================================
-const officialGroupLink = "https://t.me/SutraTokenOfficialgroup"; window.officialGroupLink = officialGroupLink;
+const officialGroupLink = "https://t.me/+qBuycU3TidEzMTJl"; window.officialGroupLink = officialGroupLink;
 const BOT_USERNAME = "SutraToken_bot";   // ❤️ your bot username (no @)
 const APP_SHORT_NAME = "";               // ❤️ optional: short name from BotFather /newapp. Leave "" if you set a Main Mini App
 let busy=false;   // one action at a time: blocks double-taps while an ad/save is in progress
-const supportLink = "https://t.me/SutraTokenMiningOfficial";
+const supportLink = "https://t.me/call/WmasSD9vLGT2vzz_kOebbouFQ4w";
 
 // ╔══════════════════════════════════════════════════════════════════════╗
 // ║ ❤️❤️❤️  VIDEO ADS — PUT YOUR VIDEO LINKS HERE  ❤️❤️❤️                 ║
@@ -237,11 +237,12 @@ document.querySelectorAll('.modal').forEach(m=>m.addEventListener('click',e=>{ i
 // ===== state =====
 let loaded=false, profile={}, authUser=null;
 let balance=0, pending=0, miningStart=0, boostLevel=0, boostEnd=0, lastCalc=Date.now();
+let tapFuel=TAP_FUEL_MAX, tapFuelAt=Date.now(), tapBoostEnd=0, tapCooldownEnd=0;
 let totalSessions=0, referralCount=0, adIndex=0, activity=[], referredBy="", claimedSessions=0, dailyStreak=0, lastDailyDay=-1, refWaiting=0, boostDay=-1, boostUses=0;
 let claims=[], totalEarned=0, vidDay=-1, vidDone=[];   // saved claim history: mining, daily gift, referral rewards
 let globalMined=0, globalUsers=0, onlineUsers=0, tick=0;
 
-const snapshot = () => ({balance, pending, miningStart, boostLevel, boostEnd, lastCalc, totalSessions, referralCount, adIndex, activity, referredBy, claimedSessions, dailyStreak, lastDailyDay, boostDay, boostUses, claims, totalEarned, vidDay, vidDone});
+const snapshot = () => ({balance, pending, miningStart, boostLevel, boostEnd, lastCalc, totalSessions, referralCount, adIndex, activity, referredBy, claimedSessions, dailyStreak, lastDailyDay, boostDay, boostUses, claims, totalEarned, vidDay, vidDone, tapFuel, tapFuelAt, tapBoostEnd, tapCooldownEnd});
 async function saveNow(extra={}){ const u=getUserId(); if(!loaded||!u) return; await window.saveUserData(u,{...snapshot(),...extra}); pushLeaderboardRow(); }
 function log(m){ activity.unshift({m, t:new Date().toLocaleString()}); activity.length=Math.min(activity.length,50); renderActivity(); }
 const CLAIM_LABEL={mining:"⛏️ Mining claimed",gift:"🎁 Daily gift claimed",video:"🎬 Video reward",referral:"🤝 Referral reward"};
@@ -349,6 +350,62 @@ async function doLogin(){
 }
 
 // ===== mining =====
+// Tap fuel slowly refills on its own (TAP_FUEL_REGEN_MS per +1), capped at TAP_FUEL_MAX.
+function regenFuel(now=Date.now()){
+  if(tapFuel>=TAP_FUEL_MAX){ tapFuelAt=now; return; }
+  const gained=Math.floor((now-tapFuelAt)/TAP_FUEL_REGEN_MS);
+  if(gained>0){ tapFuel=Math.min(TAP_FUEL_MAX, tapFuel+gained); tapFuelAt+=gained*TAP_FUEL_REGEN_MS; }
+}
+// floating "+N" that rises and fades over the mining dial, same visual language as the rest of the app
+function spawnTapFloat(text, boosted){
+  const hero = $('hero'); if(!hero) return;
+  const f = document.createElement('div');
+  f.className = 'float' + (boosted ? ' boost' : '');
+  f.style.left = (42 + Math.random()*16) + '%'; f.style.top = '40%';
+  f.textContent = text;
+  hero.appendChild(f);
+  setTimeout(() => f.remove(), 1000);
+}
+// keeps the fuel bar and the 2x Fuel button text/enabled-state in sync, every second (called from loop())
+function renderFuel(){
+  const now = Date.now();
+  $('fuelText').innerText = Math.floor(tapFuel) + ' / ' + TAP_FUEL_MAX;
+  $('fuelFill').style.width = (tapFuel/TAP_FUEL_MAX*100) + '%';
+  const b = $('tapBoostBtn');
+  if (now < tapBoostEnd) { b.disabled = true; b.innerText = `⚡ 2x Active — ${Math.ceil((tapBoostEnd-now)/1000)}s left`; }
+  else if (now < tapCooldownEnd) { b.disabled = true; b.innerText = `⏳ Recharging — ${Math.ceil((tapCooldownEnd-now)/1000)}s`; }
+  else { b.disabled = false; b.innerText = '⚡ 2x Fuel — Watch video'; }
+}
+// the coin button calls this when mining is already running; otherwise it falls through to the normal start/claim action
+function coreTap(ev){
+  if (mState() !== 'mining') { dialAction(); return; }
+  if (ev) ev.preventDefault();
+  regenFuel();
+  if (tapFuel < 1) { showToast('No fuel left — wait for it to refill or use 2x Fuel', 'error'); return; }
+  const boosted = Date.now() < tapBoostEnd;
+  const reward = TAP_REWARD * (boosted ? 2 : 1);
+  tapFuel -= 1; pending += reward;
+  spawnTapFloat('+' + reward, boosted);
+  renderFuel(); render();
+}
+// 2x Fuel: watch a video (reuses the same ad system as the other boosts) -> instant full refill + double tap rewards for 30s
+async function activateTapBoost(){
+  if (busy) return;
+  const now = Date.now();
+  if (now < tapBoostEnd || now < tapCooldownEnd) return;
+  busy = true;
+  try { await playAd(); } catch (e) { busy = false; return; }
+  regenFuel();
+  const start = Date.now();
+  tapFuel = TAP_FUEL_MAX;
+  tapBoostEnd = start + TAP_BOOST_MS;
+  tapCooldownEnd = tapBoostEnd + TAP_COOLDOWN_MS;
+  log('⚡ 2x Fuel activated — tank refilled, double tap rewards for 30s');
+  await saveNow();
+  renderFuel();
+  busy = false;
+}
+
 function settle(now=Date.now()){
   if(!miningStart){ lastCalc=now; return; }
   const t0=Math.max(lastCalc,miningStart), t1=Math.min(now,miningStart+DAY);
@@ -384,7 +441,7 @@ function render(){
     else { ws.innerHTML='<span class="bad">🔴 Stopped</span>'; wl.innerText='—'; wb.innerText='Start mining from the Mine tab'; } }
   const btn=$('mineBtn'), hero=$('hero');
   hero.classList.toggle('on-air',st==='mining'); btn.classList.toggle('live',st!=='idle'); btn.classList.toggle('idle',st==='idle');
-  btn.disabled = st==='mining';
+  btn.disabled = false;   // stays tappable during 'mining' for tap-to-earn; dialAction() itself ignores clicks mid-session
   if(st==='mining'){
     const left=miningStart+DAY-now;
     $('mineIcon').innerText="⛏️"; $('mineText').innerText="Mining"; $('mineSubText').innerText=fmt(left)+" left";
@@ -409,7 +466,7 @@ function render(){
   $('globalMeterText').innerText=(pct>0&&pct<0.01?'<0.01':pct.toFixed(pct<1?2:1))+'% mined so far';
 }
 function loop(){
-  settle(); render();
+  settle(); regenFuel(); render(); renderFuel();
   // local display updates every second; the write to Firebase happens far less often (see boot) to stay stable at high user counts
 }
 
@@ -604,6 +661,7 @@ window.bootApp = async function(au){
   totalSessions=d.totalSessions||0; referralCount=d.referralCount||0; adIndex=d.adIndex||0; activity=d.activity||[]; claims=Array.isArray(d.claims)?d.claims:[]; totalEarned=(typeof d.totalEarned==='number')?d.totalEarned:balance; vidDay=(d.vidDay ?? -1); vidDone=Array.isArray(d.vidDone)?d.vidDone:[];
   referredBy=d.referredBy||""; claimedSessions=d.claimedSessions||0; dailyStreak=d.dailyStreak||0; lastDailyDay=(d.lastDailyDay ?? -1);
   boostDay=(d.boostDay ?? -1); boostUses=d.boostUses||0;
+  tapFuel=(d.tapFuel ?? TAP_FUEL_MAX); tapFuelAt=d.tapFuelAt||Date.now(); tapBoostEnd=d.tapBoostEnd||0; tapCooldownEnd=d.tapCooldownEnd||0;
   if(tgUser && !d.name){ profile.name=(tgUser.first_name+" "+(tgUser.last_name||"")).trim(); profile.firstName=tgUser.first_name; profile.lastName=tgUser.last_name||""; }
   loaded=true; window.__ready=true; const sc=$('secCheck'); if(sc) sc.remove();
   const firstTime = !d.seenWelcome;
@@ -631,6 +689,6 @@ window.bootApp = async function(au){
 };
 
 Object.assign(window,{ claimVideo, authStep, claimDailyReward, closeSheet, dialAction, doLogin, genUserId, handleBooster, hideAuth, hideSuccess,
-  openSheet, openSupport, savePhoto, saveProfile, switchTab, verifyAccount, showAuth, logout });
+  openSheet, openSupport, savePhoto, saveProfile, switchTab, verifyAccount, showAuth, logout, coreTap, activateTapBoost });
 
 window.__appLoaded = true;
