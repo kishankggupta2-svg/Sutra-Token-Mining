@@ -119,6 +119,12 @@ window.refListFor = async (myId) => {
 window.refClaim = (referredId, referrerId) => setDoc(doc(db, "referralClaims", String(referredId)), { referrerId: String(referrerId), claimedAt: serverTimestamp() });
 window.refClaimed = async (referredId) => (await getDoc(doc(db, "referralClaims", String(referredId)))).exists();
 
+// ---- level-2 bonus: ONE level up only, fixed +100, no escalating chain ----
+// referralClaims2/{grandchildId} is created once by the grandparent (level2OwnerId), so each
+// grandchild can only ever trigger this bonus once, for exactly one person.
+window.refClaim2 = (grandchildId, level2OwnerId, parentId) => setDoc(doc(db, "referralClaims2", String(grandchildId)), { level2OwnerId: String(level2OwnerId), parentId: String(parentId), claimedAt: serverTimestamp() });
+window.refClaimed2 = async (grandchildId) => (await getDoc(doc(db, "referralClaims2", String(grandchildId)))).exists();
+
 // Atomic start: refuses if the server already has a session (running OR finished-but-unclaimed).
 window.tryStartSession = (uid, ts) => runTransaction(db, async (tx) => {
   const r = doc(db, "users", String(uid)); const d = (await tx.get(r)).data() || {};
@@ -168,11 +174,11 @@ onAuthStateChanged(auth, async (u) => {
 // ============================================================
 // PART 2: App logic - mining, boosts, gifts, referrals, UI, etc.
 // ============================================================
-const officialGroupLink = "https://t.me/SutraTokenOfficialgroup"; window.officialGroupLink = officialGroupLink;
+const officialGroupLink = "https://t.me/+qBuycU3TidEzMTJl"; window.officialGroupLink = officialGroupLink;
 const BOT_USERNAME = "SutraToken_bot";   // ❤️ your bot username (no @)
 const APP_SHORT_NAME = "";               // ❤️ optional: short name from BotFather /newapp. Leave "" if you set a Main Mini App
 let busy=false;   // one action at a time: blocks double-taps while an ad/save is in progress
-const supportLink = "https://t.me/SutraTokenMiningOfficial";
+const supportLink = "https://t.me/call/WmasSD9vLGT2vzz_kOebbouFQ4w";
 
 // ╔══════════════════════════════════════════════════════════════════════╗
 // ║ ❤️❤️❤️  VIDEO ADS — PUT YOUR VIDEO LINKS HERE  ❤️❤️❤️                 ║
@@ -192,7 +198,7 @@ const AD_VIDEOS = [
 // ❤️ PUT YOUR VIDEO URL (direct .mp4 link) in "url" for any slot. Empty url = shows "Coming soon".
 // When a url is added, that slot turns into a "Watch & claim" button and the video plays inside the app.
 // seconds = how long the video must be watched, reward = SUTRA given (once per slot per day).
-const VIDEO_CLAIMS = Array.from({length:10}, () => ({ url:"", seconds:20, reward:100 }));   // ❤️ EDIT HERE, e.g. VIDEO_CLAIMS[0] = {url:"https://.../v1.mp4", seconds:20, reward:100}
+const VIDEO_CLAIM_REWARD = 100;   // SUTRA given once per day for watching one ad (uses the same AD_SEQUENCE/AD_VIDEOS cycle as everything else)
 
 const TOTAL_SUPPLY = 2e12, DAY = 864e5, BOOST_MS = 144e5, BASE = 2000/86400;
 const BOOST_BONUS = {1:500, 2:500, 3:1000};             // extra SUTRA over the 4-hour boost window
@@ -238,11 +244,11 @@ document.querySelectorAll('.modal').forEach(m=>m.addEventListener('click',e=>{ i
 let loaded=false, profile={}, authUser=null;
 let balance=0, pending=0, miningStart=0, boostLevel=0, boostEnd=0, lastCalc=Date.now();
 let tapFuel=TAP_FUEL_MAX, tapFuelAt=Date.now(), tapBoostEnd=0, tapCooldownEnd=0;
-let totalSessions=0, referralCount=0, adIndex=0, activity=[], referredBy="", claimedSessions=0, dailyStreak=0, lastDailyDay=-1, refWaiting=0, boostDay=-1, boostUses=0;
-let claims=[], totalEarned=0, vidDay=-1, vidDone=[];   // saved claim history: mining, daily gift, referral rewards
+let totalSessions=0, referralCount=0, adIndex=0, activity=[], referredBy="", claimedSessions=0, dailyStreak=0, lastDailyDay=-1, refWaiting=0, boostDay=-1, boostUses=0, milestone5Claimed=false;
+let claims=[], totalEarned=0, vidDay=-1;   // saved claim history: mining, daily gift, referral rewards
 let globalMined=0, globalUsers=0, onlineUsers=0, tick=0;
 
-const snapshot = () => ({balance, pending, miningStart, boostLevel, boostEnd, lastCalc, totalSessions, referralCount, adIndex, activity, referredBy, claimedSessions, dailyStreak, lastDailyDay, boostDay, boostUses, claims, totalEarned, vidDay, vidDone, tapFuel, tapFuelAt, tapBoostEnd, tapCooldownEnd});
+const snapshot = () => ({balance, pending, miningStart, boostLevel, boostEnd, lastCalc, totalSessions, referralCount, adIndex, activity, referredBy, claimedSessions, dailyStreak, lastDailyDay, boostDay, boostUses, claims, totalEarned, vidDay, tapFuel, tapFuelAt, tapBoostEnd, tapCooldownEnd, milestone5Claimed});
 async function saveNow(extra={}){ const u=getUserId(); if(!loaded||!u) return; await window.saveUserData(u,{...snapshot(),...extra}); pushLeaderboardRow(); }
 function log(m){ activity.unshift({m, t:new Date().toLocaleString()}); activity.length=Math.min(activity.length,50); renderActivity(); }
 const CLAIM_LABEL={mining:"⛏️ Mining claimed",gift:"🎁 Daily gift claimed",video:"🎬 Video reward",referral:"🤝 Referral reward"};
@@ -480,7 +486,6 @@ async function dialInner(){
     if(mState()!=='done') return;
     settle(); const claimed=pending; balance+=pending; claimedSessions++; log(`✅ Claimed ${claimed.toFixed(3)} SUTRA`); addClaim('mining',claimed); pending=0; miningStart=0; boostLevel=0; boostEnd=0;
     await saveNow(); render(); showSuccess(`${claimed.toFixed(3)} SUTRA added to your balance`);
-    if(referredBy && claimedSessions>=2) window.refMarkQualified(getUserId()).catch(()=>{});
     return;
   }
   if(st!=='idle') return;
@@ -494,6 +499,8 @@ async function dialInner(){
   }
   miningStart=ts; lastCalc=ts; pending=0; boostLevel=0; boostEnd=0; totalSessions++;
   log("⛏️ 24-hour mining started"); await saveNow(); render();
+  // referral reward unlocks the moment a referred friend starts their FIRST session (real engagement, no waiting)
+  if(referredBy && totalSessions===1) window.refMarkQualified(getUserId()).catch(()=>{});
 }
 async function handleBooster(n){ if(busy) return; busy=true; try{ await boosterInner(n); } finally{ busy=false; } }
 async function boosterInner(n){
@@ -547,27 +554,21 @@ async function giftInner(){
   await saveNow(); renderGift(); render(); showSuccess(`Day ${day} gift claimed: ${(day*100).toLocaleString()} SUTRA`);
 }
 function renderVideos(){
-  const today = vidDay===dayNum(), doneList = today ? vidDone : [];
-  $('vidList').innerHTML = VIDEO_CLAIMS.map((v,i)=>{
-    const n=i+1;
-    if(!v.url) return `<div class="vrow"><span>🎬 Video claim ${n}</span><em>Coming soon</em></div>`;
-    if(doneList.includes(i)) return `<div class="vrow"><span>🎬 Video claim ${n}</span><em class="ok">✓ Claimed today</em></div>`;
-    return `<div class="vrow"><span>🎬 Video claim ${n}</span><button class="vbtn" onclick="claimVideo(${i})">Watch & claim +${v.reward}</button></div>`;
-  }).join("");
+  const claimedToday = vidDay===dayNum();
+  $('vidList').innerHTML = claimedToday
+    ? `<div class="vrow"><span>🎬 Video claim</span><em class="ok">✓ Claimed today</em></div>`
+    : `<div class="vrow"><span>🎬 Video claim</span><button class="vbtn" onclick="claimVideo()">Watch & claim +${VIDEO_CLAIM_REWARD}</button></div>`;
 }
-async function claimVideo(i){
+async function claimVideo(){
   if(busy) return; busy=true;
   try{
     if(!loaded && getUserId() && !window.linkError){ showToast('Loading… please wait'); return; }
     if(!loaded){ showToast('Could not connect — see Profile for details','error'); return; }
-    const v=VIDEO_CLAIMS[i]; if(!v||!v.url) return;
-    if(vidDay!==dayNum()){ vidDay=dayNum(); vidDone=[]; }
-    if(vidDone.includes(i)){ showToast("Already claimed today. Come back tomorrow."); return; }
-    try{ await playAd({secs:v.seconds, url:v.url}); }catch(e){ return; }
-    if(vidDay!==dayNum()){ vidDay=dayNum(); vidDone=[]; }
-    if(vidDone.includes(i)) return;
-    balance+=v.reward; vidDone.push(i); log(`🎬 Video ${i+1} reward claimed (${v.reward} SUTRA)`); addClaim('video',v.reward);
-    await saveNow(); renderVideos(); render(); showSuccess(`Video reward: ${v.reward.toLocaleString()} SUTRA`);
+    if(vidDay===dayNum()){ showToast("Already claimed today. Come back tomorrow."); return; }
+    try{ await playAd(); }catch(e){ return; }               // uses the shared 15/20/25/30s ad cycle
+    if(vidDay===dayNum()) return;                            // guard against a double-tap finishing twice
+    balance+=VIDEO_CLAIM_REWARD; vidDay=dayNum(); log(`🎬 Video claim reward (${VIDEO_CLAIM_REWARD} SUTRA)`); addClaim('video',VIDEO_CLAIM_REWARD);
+    await saveNow(); renderVideos(); render(); showSuccess(`Video reward: ${VIDEO_CLAIM_REWARD.toLocaleString()} SUTRA`);
   } finally{ busy=false; }
 }
 async function pushLeaderboardRow(){
@@ -615,23 +616,47 @@ async function checkReferrals(){
   // this account owns and writes itself, so no cross-user write is ever needed.
   if(!loaded) return;
   try{
-    const list=await window.refListFor(getUserId()); let wait=0, changed=false;
+    const myId=getUserId();
+    const list=await window.refListFor(myId); let wait=0, changed=false;
     for(const r of list){
       if(!r.qualified) { wait++; continue; }
       if(await window.refClaimed(r.id)) continue;
       try{
-        await window.refClaim(r.id, getUserId());
-        balance+=500; referralCount++; changed=true; log("🤝 500 SUTRA referral reward: your friend completed 2 sessions"); addClaim('referral',500);
+        await window.refClaim(r.id, myId);
+        balance+=500; referralCount++; changed=true; log("🤝 500 SUTRA referral reward: your friend started mining"); addClaim('referral',500);
       }catch(e){}   // someone/something already claimed this friend — skip silently
     }
-    refWaiting=wait; if(changed) await saveNow(); render();
+    refWaiting=wait;
+
+    // one-time milestone: 5 direct referrals -> +1000, exactly once, never repeats
+    if(!milestone5Claimed && referralCount>=5){
+      milestone5Claimed=true; balance+=1000; changed=true;
+      log("🏆 Milestone: 5 referrals reached — 1000 SUTRA bonus"); addClaim('referral',1000);
+    }
+
+    // level-2 bonus: ONE level up only. If a friend YOU referred has themselves referred someone
+    // who is now qualified, you get a fixed +100 — once per grandchild, never escalating further.
+    for(const r of list){
+      try{
+        const grandkids=await window.refListFor(r.id);
+        for(const g of grandkids){
+          if(!g.qualified) continue;
+          if(await window.refClaimed2(g.id)) continue;
+          try{
+            await window.refClaim2(g.id, myId, r.id);
+            balance+=100; changed=true; log("🤝 100 SUTRA bonus: your referral's friend joined too"); addClaim('referral',100);
+          }catch(e){}
+        }
+      }catch(e){}
+    }
+
+    if(changed) await saveNow(); render();
   }catch(e){}
 }
 function openSupport(){ tg?.openTelegramLink ? tg.openTelegramLink(supportLink) : window.open(supportLink,"_blank"); }
 
 // ===== boot (called by the Firebase module once auth state is known) =====
 function bootFail(detail){
-  const sc=$('secCheck'); if(sc) sc.remove();
   const b=$('mineBtn'); if(!b) return;
   $('mineIcon').innerText="⚠️"; $('mineText').innerText="Not connected"; $('mineSubText').innerText="Tap to retry";
   b.disabled=false; b.onclick=()=>location.reload();
@@ -658,12 +683,12 @@ window.bootApp = async function(au){
   d=d||{}; profile=d;
   balance=Math.max(0,d.balance||0); pending=Math.max(0,d.pending||0); miningStart=d.miningStart||0;
   boostLevel=d.boostLevel||0; boostEnd=d.boostEnd||0; lastCalc=d.lastCalc||Date.now();
-  totalSessions=d.totalSessions||0; referralCount=d.referralCount||0; adIndex=d.adIndex||0; activity=d.activity||[]; claims=Array.isArray(d.claims)?d.claims:[]; totalEarned=(typeof d.totalEarned==='number')?d.totalEarned:balance; vidDay=(d.vidDay ?? -1); vidDone=Array.isArray(d.vidDone)?d.vidDone:[];
-  referredBy=d.referredBy||""; claimedSessions=d.claimedSessions||0; dailyStreak=d.dailyStreak||0; lastDailyDay=(d.lastDailyDay ?? -1);
+  totalSessions=d.totalSessions||0; referralCount=d.referralCount||0; adIndex=d.adIndex||0; activity=d.activity||[]; claims=Array.isArray(d.claims)?d.claims:[]; totalEarned=(typeof d.totalEarned==='number')?d.totalEarned:balance; vidDay=(d.vidDay ?? -1);
+  referredBy=d.referredBy||""; claimedSessions=d.claimedSessions||0; dailyStreak=d.dailyStreak||0; lastDailyDay=(d.lastDailyDay ?? -1); milestone5Claimed=!!d.milestone5Claimed;
   boostDay=(d.boostDay ?? -1); boostUses=d.boostUses||0;
   tapFuel=(d.tapFuel ?? TAP_FUEL_MAX); tapFuelAt=d.tapFuelAt||Date.now(); tapBoostEnd=d.tapBoostEnd||0; tapCooldownEnd=d.tapCooldownEnd||0;
   if(tgUser && !d.name){ profile.name=(tgUser.first_name+" "+(tgUser.last_name||"")).trim(); profile.firstName=tgUser.first_name; profile.lastName=tgUser.last_name||""; }
-  loaded=true; window.__ready=true; const sc=$('secCheck'); if(sc) sc.remove();
+  loaded=true; window.__ready=true;
   const firstTime = !d.seenWelcome;
   const sp=tg?.initDataUnsafe?.start_param;
   if(sp?.startsWith('ref_') && !d.referredBy){
