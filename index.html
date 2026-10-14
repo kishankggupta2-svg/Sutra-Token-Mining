@@ -109,8 +109,6 @@ label{font-size:11px;color:var(--mist)}
 .sheet h3{font-size:17px;margin-bottom:10px;color:var(--saffron)}
 .item{padding:9px 0;border-bottom:1px solid var(--line);font-size:12px;color:var(--mist)}
 .item b{color:var(--white);display:block;font-size:12px}
-.secDots{animation:pulseDots 1.2s ease-in-out infinite}
-@keyframes pulseDots{0%,100%{opacity:.3}50%{opacity:1}}
 @media (prefers-reduced-motion:reduce){*{animation:none!important}}
 </style><style>
 .screen.mine{overflow-y:auto;justify-content:flex-start;gap:12px}
@@ -172,18 +170,11 @@ input[type=password],input[type=email],input[type=tel]{width:100%;padding:11px;b
 .histLabel{font-size:9px;color:var(--mist);font-weight:700}
 .tagline{font-size:11px;color:var(--saffron);font-weight:700;margin-bottom:6px}
 .vrow em{font-style:normal;font-size:11px;color:var(--mist)}.vbtn{border:0;border-radius:10px;padding:8px 12px;font-weight:800;font-size:12px;color:#1a0f00;background:linear-gradient(90deg,var(--saffron),var(--ember))}
-.vrow{display:flex;justify-content:space-between;align-items:center;padding:9px 0;border-bottom:1px solid var(--line);font-size:13px;color:var(--mist)}.vrow:last-child{border-bottom:0}.soonpill{font-size:10px;font-weight:800;color:var(--saffron);border:1px solid var(--line);border-radius:20px;padding:3px 9px}
+.vrow{display:flex;justify-content:space-between;align-items:center;padding:9px 0;border-bottom:1px solid var(--line);font-size:13px;color:var(--mist)}.vrow:last-child{border-bottom:0}
 </style>
 </head>
 <body>
-<div id="secCheck" style="position:fixed;inset:0;z-index:500;background:var(--ink);display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:24px">
-    <div style="font-size:40px;margin-bottom:14px">🔒</div>
-    <div style="font-size:18px;font-weight:800;color:var(--saffron);margin-bottom:6px">Security Check</div>
-    <div style="font-size:13px;color:var(--mist);max-width:280px;line-height:1.5">Please wait while we verify your session before opening Sutra Token Mining.</div>
-    <div class="secDots" style="margin-top:18px;font-size:22px;letter-spacing:6px;color:var(--saffron)">•••</div>
-    <div style="font-size:11px;color:var(--mist);margin-top:16px">Secured connection</div>
-  </div>
-  <div id="app">
+<div id="app">
   <div class="hdr">
     <div class="avatar" id="uPic" onclick="switchTab('profile')">S</div>
     <div class="who"><b id="uName">Miner</b><small id="rankBox">🪨 New Miner</small></div>
@@ -232,11 +223,6 @@ input[type=password],input[type=email],input[type=tel]{width:100%;padding:11px;b
       <div class="bar"><i id="fuelFill" style="width:100%"></i></div>
       <button class="btn" id="tapBoostBtn" style="margin-top:10px" onclick="activateTapBoost()">⚡ 2x Fuel — Watch video</button>
     </div>
-
-    <div class="card" style="margin:0">
-      <h3>🎬 Video rewards</h3>
-      <div class="vrow"><span>🎬 Video claim 1</span><span class="soonpill">Coming soon</span></div><div class="vrow"><span>🎬 Video claim 2</span><span class="soonpill">Coming soon</span></div><div class="vrow"><span>🎬 Video claim 3</span><span class="soonpill">Coming soon</span></div><div class="vrow"><span>🎬 Video claim 4</span><span class="soonpill">Coming soon</span></div><div class="vrow"><span>🎬 Video claim 5</span><span class="soonpill">Coming soon</span></div><div class="vrow"><span>🎬 Video claim 6</span><span class="soonpill">Coming soon</span></div><div class="vrow"><span>🎬 Video claim 7</span><span class="soonpill">Coming soon</span></div><div class="vrow"><span>🎬 Video claim 8</span><span class="soonpill">Coming soon</span></div><div class="vrow"><span>🎬 Video claim 9</span><span class="soonpill">Coming soon</span></div><div class="vrow"><span>🎬 Video claim 10</span><span class="soonpill">Coming soon</span></div>
-    </div>
       </div>
 
   <div id="s-earn" class="screen">
@@ -254,7 +240,7 @@ input[type=password],input[type=email],input[type=tel]{width:100%;padding:11px;b
       <button class="btn tg" onclick="window.open(officialGroupLink,'_blank')">Join Telegram group</button>
       <button class="btn alt" onclick="openSupport()">Contact support</button></div>
     <div class="card"><h3>Invite friends, earn 500 $SUTRA each</h3>
-      <p>You get the bonus after your friend starts mining, claims their first session, and completes a second session.</p>
+      <p>You get 500 SUTRA as soon as your friend starts their first mining session. Reach 5 referrals for a one-time 1,000 SUTRA bonus. If your friend refers someone too, you get an extra 100 SUTRA.</p>
       <div class="row">Rewarded friends<b id="refCount2">0</b></div>
       <div class="row">Waiting for friend<b id="refWaiting">0</b></div>
       <button class="btn" onclick="shareApp()">Share</button>
