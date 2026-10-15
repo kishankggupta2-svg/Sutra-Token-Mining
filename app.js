@@ -200,6 +200,25 @@ const AD_VIDEOS = [
 // seconds = how long the video must be watched, reward = SUTRA given (once per slot per day).
 const VIDEO_CLAIM_REWARD = 100;   // SUTRA given once per day for watching one ad (uses the same AD_SEQUENCE/AD_VIDEOS cycle as everything else)
 
+// Achievements are purely a read-only display of stats that already exist — they award no
+// SUTRA and write nothing to Firestore on their own, so they can never be abused for balance gain.
+const BADGES = [
+  { icon:'⛏️', label:'First Mine', test: s => s.totalSessions>=1 },
+  { icon:'✅', label:'First Claim', test: s => s.claimedSessions>=1 },
+  { icon:'🚀', label:'First Boost', test: s => s.boostLevel>=1 || s.everBoosted },
+  { icon:'🔥', label:'7-Day Streak', test: s => s.dailyStreak>=7 },
+  { icon:'🏆', label:'30-Day Streak', test: s => s.dailyStreak>=30 },
+  { icon:'🤝', label:'First Referral', test: s => s.referralCount>=1 },
+  { icon:'👥', label:'5 Referrals', test: s => s.referralCount>=5 },
+  { icon:'🥈', label:'Silver Miner (50K)', test: s => (s.balance+s.pending)>=50000 },
+  { icon:'🥇', label:'Gold Miner (100K)', test: s => (s.balance+s.pending)>=100000 },
+];
+function renderBadges(){
+  const el=$('badgeGrid'); if(!el) return;
+  const s={ totalSessions, claimedSessions, boostLevel, everBoosted: boostLevel>0, dailyStreak, referralCount, balance, pending };
+  el.innerHTML = BADGES.map(b=>`<div class="badge ${b.test(s)?'on':''}"><div class="ic">${b.icon}</div><div class="lb">${esc(b.label)}</div></div>`).join("");
+}
+
 const TOTAL_SUPPLY = 2e12, DAY = 864e5, BOOST_MS = 144e5, BASE = 2000/86400;
 const BOOST_BONUS = {1:500, 2:500, 3:1000};             // extra SUTRA over the 4-hour boost window
 const BOOST_DAILY_LIMIT = 2;                            // booster can be started this many times per 24h
@@ -236,6 +255,7 @@ function switchTab(t){
   document.querySelectorAll('.tab').forEach(e=>e.classList.toggle('on', e.dataset.t===t));
   $('s-'+t).classList.add('on');
   if(t==='earn' && loaded) renderGift();
+  if(t==='profile' && loaded) renderBadges();
 }
 const openSheet = id => $(id).style.display='flex', closeSheet = id => $(id).style.display='none';
 document.querySelectorAll('.modal').forEach(m=>m.addEventListener('click',e=>{ if(e.target===m) m.style.display='none'; }));
@@ -254,7 +274,7 @@ function log(m){ activity.unshift({m, t:new Date().toLocaleString()}); activity.
 const CLAIM_LABEL={mining:"⛏️ Mining claimed",gift:"🎁 Daily gift claimed",video:"🎬 Video reward",referral:"🤝 Referral reward"};
 function addClaim(type, amt){ totalEarned+=Number(amt)||0; claims.unshift({type, amt:Number(amt), t:Date.now()}); claims.length=Math.min(claims.length,100); renderClaims(); }
 function renderClaims(){
-  $('alertCount').innerText = claims.length;
+  // History button now shows a fixed green checkmark instead of a live count
   const total = claims.reduce((a,c)=>a+(c.amt||0),0);
   $('claimList').innerHTML = claims.length
     ? `<div class="row" style="border-bottom:1px solid var(--line);margin-bottom:4px"><span>Total claimed</span><b class="ok">${total.toLocaleString(undefined,{maximumFractionDigits:3})} SUTRA</b></div>` +
@@ -657,6 +677,7 @@ function openSupport(){ tg?.openTelegramLink ? tg.openTelegramLink(supportLink) 
 
 // ===== boot (called by the Firebase module once auth state is known) =====
 function bootFail(detail){
+  const sc=$('secCheck'); if(sc) sc.remove();
   const b=$('mineBtn'); if(!b) return;
   $('mineIcon').innerText="⚠️"; $('mineText').innerText="Not connected"; $('mineSubText').innerText="Tap to retry";
   b.disabled=false; b.onclick=()=>location.reload();
@@ -688,7 +709,7 @@ window.bootApp = async function(au){
   boostDay=(d.boostDay ?? -1); boostUses=d.boostUses||0;
   tapFuel=(d.tapFuel ?? TAP_FUEL_MAX); tapFuelAt=d.tapFuelAt||Date.now(); tapBoostEnd=d.tapBoostEnd||0; tapCooldownEnd=d.tapCooldownEnd||0;
   if(tgUser && !d.name){ profile.name=(tgUser.first_name+" "+(tgUser.last_name||"")).trim(); profile.firstName=tgUser.first_name; profile.lastName=tgUser.last_name||""; }
-  loaded=true; window.__ready=true;
+  loaded=true; window.__ready=true; const sc=$('secCheck'); if(sc) sc.remove();
   const firstTime = !d.seenWelcome;
   const sp=tg?.initDataUnsafe?.start_param;
   if(sp?.startsWith('ref_') && !d.referredBy){
@@ -704,7 +725,7 @@ window.bootApp = async function(au){
   renderProfile(); renderActivity(); renderClaims(); setupShare(); render();
   if(firstTime) openSheet('welcomeModal');
   loadAnnouncements(); loadLeaderboard();
-  renderGift(); renderVideos(); checkReferrals();
+  renderGift(); renderVideos(); renderBadges(); checkReferrals();
   setInterval(loop,1000); setInterval(loadLeaderboard,60000); setInterval(checkReferrals,60000);
   // single periodic write to Firebase (balance/session/online state), spread out so a huge number of
   // concurrent users never floods Firestore with per-second writes
