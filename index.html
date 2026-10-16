@@ -66,7 +66,17 @@ body{background:radial-gradient(120% 70% at 50% 0%,#2b1a0d 0%,var(--ink) 60%);}
 @keyframes breathe{50%{box-shadow:0 0 0 14px rgba(255,176,32,.08),0 14px 50px rgba(255,122,26,.5),inset 0 -8px 18px rgba(120,50,0,.35)}}
 .core.live{background:radial-gradient(circle at 35% 30%,#8ff5cf,var(--jade) 50%,#0f9f73);color:#012a1d;box-shadow:0 0 0 6px rgba(46,230,166,.12),0 14px 40px rgba(46,230,166,.3)}
 .float{position:absolute;font-weight:800;color:var(--jade);pointer-events:none;animation:up 1s ease-out forwards;font-size:16px}
+.float.tap{font-size:22px;animation:tapUp .8s cubic-bezier(.2,.9,.3,1.3) forwards;text-shadow:0 2px 10px rgba(0,0,0,.4)}
+.float.tap:nth-of-type(3n){color:var(--saffron)}
+.float.tap:nth-of-type(3n+1){color:var(--jade)}
+.float.tap:nth-of-type(3n+2){color:var(--lotus)}
+.float.tap.boost{color:var(--saffron);font-size:26px;text-shadow:0 0 14px rgba(255,176,32,.8)}
+@keyframes tapUp{0%{transform:translateY(0) scale(.6);opacity:0}15%{transform:translateY(-10px) scale(1.3);opacity:1}100%{transform:translateY(-80px) scale(1);opacity:0}}
 .float.boost{color:var(--saffron)}
+.float.tap{font-size:20px;animation:tapUp .7s cubic-bezier(.2,.8,.3,1.4) forwards}
+@keyframes tapUp{0%{transform:translateY(0) scale(.4);opacity:0}15%{transform:translateY(-6px) scale(1.25);opacity:1}100%{transform:translateY(-60px) scale(1);opacity:0}}
+.float.tap.c1{color:var(--jade)}.float.tap.c2{color:var(--saffron)}.float.tap.c3{color:var(--lotus)}.float.tap.c4{color:#7adcff}
+.float.tap.boost{color:var(--saffron);font-weight:900}
 @keyframes up{to{transform:translateY(-70px);opacity:0}}
 
 /* bottom of mine screen */
@@ -180,6 +190,11 @@ input[type=password],input[type=email],input[type=tel]{width:100%;padding:11px;b
 .badge .ic{font-size:22px}
 .badge .lb{font-size:9px;color:var(--mist);margin-top:4px;line-height:1.3}
 .badge.on .lb{color:var(--white)}
+.tapcard{border-color:var(--lotus);background:linear-gradient(135deg,#3b1424,var(--panel))}
+.tapboostbtn{background:linear-gradient(90deg,#ff5d8f,var(--saffron))}
+.core.tapped{animation:tapPulse .25s ease-out}
+@keyframes tapPulse{0%{transform:scale(1)}50%{transform:scale(1.08);box-shadow:0 0 0 14px rgba(255,93,143,.25),0 14px 50px rgba(255,93,143,.5)}100%{transform:scale(1)}}
+.float.tap{color:var(--lotus);font-size:20px;text-shadow:0 0 10px rgba(255,93,143,.6)}
 </style>
 </head>
 <body>
@@ -234,10 +249,11 @@ input[type=password],input[type=email],input[type=tel]{width:100%;padding:11px;b
       </div>
     </div>
 
-    <div class="card" style="margin:0">
-      <div class="row" style="padding:0 0 6px"><span>⚡ Tap Fuel</span><b id="fuelText">500 / 500</b></div>
+    <div class="card tapcard" style="margin:0">
+      <div class="row" style="padding:0 0 2px"><span>⚡ Tap Fuel</span><b id="fuelText">500 / 500</b></div>
+      <p style="margin:0 0 8px;font-size:11px;color:var(--mist)">Tap the coin above for bonus SUTRA on top of your 24h mining — separate from your session reward.</p>
       <div class="bar"><i id="fuelFill" style="width:100%"></i></div>
-      <button class="btn" id="tapBoostBtn" style="margin-top:10px" onclick="activateTapBoost()">⚡ 2x Fuel — Watch video</button>
+      <button class="btn tapboostbtn" id="tapBoostBtn" style="margin-top:10px" onclick="activateTapBoost()">⚡ 2x Fuel — Watch video</button>
     </div>
       </div>
 
@@ -381,4 +397,4 @@ setTimeout(function(){ if(!window.__ready){ var sc0=document.getElementById('sec
 </script>
 <script type="module" src="app.js"></script>
 </body>
-                                                                            </html>
+</html>
