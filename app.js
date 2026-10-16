@@ -218,9 +218,7 @@ function renderBadges(){
   const s={ totalSessions, claimedSessions, boostLevel, everBoosted: boostLevel>0, dailyStreak, referralCount, balance, pending };
   el.innerHTML = BADGES.map(b=>`<div class="badge ${b.test(s)?'on':''}"><div class="ic">${b.icon}</div><div class="lb">${esc(b.label)}</div></div>`).join("");
 }
-miningStart=ts; lastCalc=ts; pending=0; boostLevel=0; boostEnd=0; totalSessions++;
-  log("⛏️ 24-hour mining started"); await saveNow(); render();
-}
+
 const TOTAL_SUPPLY = 2e12, DAY = 864e5, BOOST_MS = 144e5, BASE = 2000/86400;
 const BOOST_BONUS = {1:500, 2:500, 3:1000};             // extra SUTRA over the 4-hour boost window
 const BOOST_DAILY_LIMIT = 2;                            // booster can be started this many times per 24h
