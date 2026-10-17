@@ -119,12 +119,6 @@ window.refListFor = async (myId) => {
 window.refClaim = (referredId, referrerId) => setDoc(doc(db, "referralClaims", String(referredId)), { referrerId: String(referrerId), claimedAt: serverTimestamp() });
 window.refClaimed = async (referredId) => (await getDoc(doc(db, "referralClaims", String(referredId)))).exists();
 
-// ---- level-2 bonus: ONE level up only, fixed +100, no escalating chain ----
-// referralClaims2/{grandchildId} is created once by the grandparent (level2OwnerId), so each
-// grandchild can only ever trigger this bonus once, for exactly one person.
-window.refClaim2 = (grandchildId, level2OwnerId, parentId) => setDoc(doc(db, "referralClaims2", String(grandchildId)), { level2OwnerId: String(level2OwnerId), parentId: String(parentId), claimedAt: serverTimestamp() });
-window.refClaimed2 = async (grandchildId) => (await getDoc(doc(db, "referralClaims2", String(grandchildId)))).exists();
-
 // Atomic start: refuses if the server already has a session (running OR finished-but-unclaimed).
 window.tryStartSession = (uid, ts) => runTransaction(db, async (tx) => {
   const r = doc(db, "users", String(uid)); const d = (await tx.get(r)).data() || {};
@@ -198,35 +192,11 @@ const AD_VIDEOS = [
 // ❤️ PUT YOUR VIDEO URL (direct .mp4 link) in "url" for any slot. Empty url = shows "Coming soon".
 // When a url is added, that slot turns into a "Watch & claim" button and the video plays inside the app.
 // seconds = how long the video must be watched, reward = SUTRA given (once per slot per day).
-const VIDEO_CLAIM_REWARD = 100;   // SUTRA given once per day for watching one ad (uses the same AD_SEQUENCE/AD_VIDEOS cycle as everything else)
-
-// Achievements are purely a read-only display of stats that already exist — they award no
-// SUTRA and write nothing to Firestore on their own, so they can never be abused for balance gain.
-const BADGES = [
-  { icon:'⛏️', label:'First Mine', test: s => s.totalSessions>=1 },
-  { icon:'✅', label:'First Claim', test: s => s.claimedSessions>=1 },
-  { icon:'🚀', label:'First Boost', test: s => s.boostLevel>=1 || s.everBoosted },
-  { icon:'🔥', label:'7-Day Streak', test: s => s.dailyStreak>=7 },
-  { icon:'🏆', label:'30-Day Streak', test: s => s.dailyStreak>=30 },
-  { icon:'🤝', label:'First Referral', test: s => s.referralCount>=1 },
-  { icon:'👥', label:'5 Referrals', test: s => s.referralCount>=5 },
-  { icon:'🥈', label:'Silver Miner (50K)', test: s => (s.balance+s.pending)>=50000 },
-  { icon:'🥇', label:'Gold Miner (100K)', test: s => (s.balance+s.pending)>=100000 },
-];
-function renderBadges(){
-  const el=$('badgeGrid'); if(!el) return;
-  const s={ totalSessions, claimedSessions, boostLevel, everBoosted: boostLevel>0, dailyStreak, referralCount, balance, pending };
-  el.innerHTML = BADGES.map(b=>`<div class="badge ${b.test(s)?'on':''}"><div class="ic">${b.icon}</div><div class="lb">${esc(b.label)}</div></div>`).join("");
-}
+const VIDEO_CLAIMS = Array.from({length:10}, () => ({ url:"", seconds:20, reward:100 }));   // ❤️ EDIT HERE, e.g. VIDEO_CLAIMS[0] = {url:"https://.../v1.mp4", seconds:20, reward:100}
 
 const TOTAL_SUPPLY = 2e12, DAY = 864e5, BOOST_MS = 144e5, BASE = 2000/86400;
 const BOOST_BONUS = {1:500, 2:500, 3:1000};             // extra SUTRA over the 4-hour boost window
 const BOOST_DAILY_LIMIT = 2;                            // booster can be started this many times per 24h
-const TAP_FUEL_MAX = 500;        // full fuel tank (also = max SUTRA earnable per tank via tapping)
-const TAP_REWARD = 1;            // SUTRA per tap (normal)
-const TAP_BOOST_MS = 30*1000;    // 2x Fuel: how long the doubled reward lasts
-const TAP_COOLDOWN_MS = 10*60*1000; // 2x Fuel: cooldown before it can be used again
-const TAP_FUEL_REGEN_MS = 3000;  // +1 fuel every 3s when not full (~25 min to refill from empty)
 const boostRate = () => boostLevel ? BOOST_BONUS[boostLevel]/(BOOST_MS/1000) : 0;
 const $ = id => document.getElementById(id);
 const dayNum = () => Math.floor((Date.now()-new Date().getTimezoneOffset()*6e4)/864e5);
@@ -255,7 +225,6 @@ function switchTab(t){
   document.querySelectorAll('.tab').forEach(e=>e.classList.toggle('on', e.dataset.t===t));
   $('s-'+t).classList.add('on');
   if(t==='earn' && loaded) renderGift();
-  if(t==='profile' && loaded) renderBadges();
 }
 const openSheet = id => $(id).style.display='flex', closeSheet = id => $(id).style.display='none';
 document.querySelectorAll('.modal').forEach(m=>m.addEventListener('click',e=>{ if(e.target===m) m.style.display='none'; }));
@@ -263,18 +232,17 @@ document.querySelectorAll('.modal').forEach(m=>m.addEventListener('click',e=>{ i
 // ===== state =====
 let loaded=false, profile={}, authUser=null;
 let balance=0, pending=0, miningStart=0, boostLevel=0, boostEnd=0, lastCalc=Date.now();
-let tapFuel=TAP_FUEL_MAX, tapFuelAt=Date.now(), tapBoostEnd=0, tapCooldownEnd=0;
-let totalSessions=0, referralCount=0, adIndex=0, activity=[], referredBy="", claimedSessions=0, dailyStreak=0, lastDailyDay=-1, refWaiting=0, boostDay=-1, boostUses=0, milestone5Claimed=false;
-let claims=[], totalEarned=0, vidDay=-1;   // saved claim history: mining, daily gift, referral rewards
+let totalSessions=0, referralCount=0, adIndex=0, activity=[], referredBy="", claimedSessions=0, dailyStreak=0, lastDailyDay=-1, refWaiting=0, boostDay=-1, boostUses=0;
+let claims=[], totalEarned=0, vidDay=-1, vidDone=[];   // saved claim history: mining, daily gift, referral rewards
 let globalMined=0, globalUsers=0, onlineUsers=0, tick=0;
 
-const snapshot = () => ({balance, pending, miningStart, boostLevel, boostEnd, lastCalc, totalSessions, referralCount, adIndex, activity, referredBy, claimedSessions, dailyStreak, lastDailyDay, boostDay, boostUses, claims, totalEarned, vidDay, tapFuel, tapFuelAt, tapBoostEnd, tapCooldownEnd, milestone5Claimed});
+const snapshot = () => ({balance, pending, miningStart, boostLevel, boostEnd, lastCalc, totalSessions, referralCount, adIndex, activity, referredBy, claimedSessions, dailyStreak, lastDailyDay, boostDay, boostUses, claims, totalEarned, vidDay, vidDone});
 async function saveNow(extra={}){ const u=getUserId(); if(!loaded||!u) return; await window.saveUserData(u,{...snapshot(),...extra}); pushLeaderboardRow(); }
 function log(m){ activity.unshift({m, t:new Date().toLocaleString()}); activity.length=Math.min(activity.length,50); renderActivity(); }
 const CLAIM_LABEL={mining:"⛏️ Mining claimed",gift:"🎁 Daily gift claimed",video:"🎬 Video reward",referral:"🤝 Referral reward"};
 function addClaim(type, amt){ totalEarned+=Number(amt)||0; claims.unshift({type, amt:Number(amt), t:Date.now()}); claims.length=Math.min(claims.length,100); renderClaims(); }
 function renderClaims(){
-  // History button now shows a fixed green checkmark instead of a live count
+  $('alertCount').innerText = claims.length;
   const total = claims.reduce((a,c)=>a+(c.amt||0),0);
   $('claimList').innerHTML = claims.length
     ? `<div class="row" style="border-bottom:1px solid var(--line);margin-bottom:4px"><span>Total claimed</span><b class="ok">${total.toLocaleString(undefined,{maximumFractionDigits:3})} SUTRA</b></div>` +
@@ -376,65 +344,6 @@ async function doLogin(){
 }
 
 // ===== mining =====
-// Tap fuel slowly refills on its own (TAP_FUEL_REGEN_MS per +1), capped at TAP_FUEL_MAX.
-function regenFuel(now=Date.now()){
-  if(tapFuel>=TAP_FUEL_MAX){ tapFuelAt=now; return; }
-  const gained=Math.floor((now-tapFuelAt)/TAP_FUEL_REGEN_MS);
-  if(gained>0){ tapFuel=Math.min(TAP_FUEL_MAX, tapFuel+gained); tapFuelAt+=gained*TAP_FUEL_REGEN_MS; }
-}
-// floating "+N" that rises and fades over the mining dial, same visual language as the rest of the app
-let tapColorIdx = 0;
-function spawnTapFloat(text, boosted){
-  const hero = $('hero'); if(!hero) return;
-  const f = document.createElement('div');
-  tapColorIdx = (tapColorIdx % 4) + 1;
-  f.className = 'float tap c' + tapColorIdx + (boosted ? ' boost' : '');
-  f.style.left = (38 + Math.random()*24) + '%'; f.style.top = (35 + Math.random()*10) + '%';
-  f.textContent = text;
-  hero.appendChild(f);
-  setTimeout(() => f.remove(), 700);
-}
-// keeps the fuel bar and the 2x Fuel button text/enabled-state in sync, every second (called from loop())
-function renderFuel(){
-  const now = Date.now();
-  $('fuelText').innerText = Math.floor(tapFuel) + ' / ' + TAP_FUEL_MAX;
-  $('fuelFill').style.width = (tapFuel/TAP_FUEL_MAX*100) + '%';
-  const b = $('tapBoostBtn');
-  if (now < tapBoostEnd) { b.disabled = true; b.innerText = `⚡ 2x Active — ${Math.ceil((tapBoostEnd-now)/1000)}s left`; }
-  else if (now < tapCooldownEnd) { b.disabled = true; b.innerText = `⏳ Recharging — ${Math.ceil((tapCooldownEnd-now)/1000)}s`; }
-  else { b.disabled = false; b.innerText = '⚡ 2x Fuel — Watch video'; }
-}
-// the coin button calls this when mining is already running; otherwise it falls through to the normal start/claim action
-function coreTap(ev){
-  if (mState() !== 'mining') { dialAction(); return; }
-  if (ev) ev.preventDefault();
-  regenFuel();
-  if (tapFuel < 1) { showToast('No fuel left — wait for it to refill or use 2x Fuel', 'error'); return; }
-  const boosted = Date.now() < tapBoostEnd;
-  const reward = TAP_REWARD * (boosted ? 2 : 1);
-  tapFuel -= 1; pending += reward;
-  spawnTapFloat('+' + reward, boosted);
-  const btn=$('mineBtn'); if(btn){ btn.classList.remove('tapped'); void btn.offsetWidth; btn.classList.add('tapped'); }
-  renderFuel(); render();
-}
-// 2x Fuel: watch a video (reuses the same ad system as the other boosts) -> instant full refill + double tap rewards for 30s
-async function activateTapBoost(){
-  if (busy) return;
-  const now = Date.now();
-  if (now < tapBoostEnd || now < tapCooldownEnd) return;
-  busy = true;
-  try { await playAd(); } catch (e) { busy = false; return; }
-  regenFuel();
-  const start = Date.now();
-  tapFuel = TAP_FUEL_MAX;
-  tapBoostEnd = start + TAP_BOOST_MS;
-  tapCooldownEnd = tapBoostEnd + TAP_COOLDOWN_MS;
-  log('⚡ 2x Fuel activated — tank refilled, double tap rewards for 30s');
-  await saveNow();
-  renderFuel();
-  busy = false;
-}
-
 function settle(now=Date.now()){
   if(!miningStart){ lastCalc=now; return; }
   const t0=Math.max(lastCalc,miningStart), t1=Math.min(now,miningStart+DAY);
@@ -470,7 +379,7 @@ function render(){
     else { ws.innerHTML='<span class="bad">🔴 Stopped</span>'; wl.innerText='—'; wb.innerText='Start mining from the Mine tab'; } }
   const btn=$('mineBtn'), hero=$('hero');
   hero.classList.toggle('on-air',st==='mining'); btn.classList.toggle('live',st!=='idle'); btn.classList.toggle('idle',st==='idle');
-  btn.disabled = false;   // stays tappable during 'mining' for tap-to-earn; dialAction() itself ignores clicks mid-session
+  btn.disabled = st==='mining';
   if(st==='mining'){
     const left=miningStart+DAY-now;
     $('mineIcon').innerText="⛏️"; $('mineText').innerText="Mining"; $('mineSubText').innerText=fmt(left)+" left";
@@ -495,7 +404,7 @@ function render(){
   $('globalMeterText').innerText=(pct>0&&pct<0.01?'<0.01':pct.toFixed(pct<1?2:1))+'% mined so far';
 }
 function loop(){
-  settle(); regenFuel(); render(); renderFuel();
+  settle(); render();
   // local display updates every second; the write to Firebase happens far less often (see boot) to stay stable at high user counts
 }
 
@@ -509,6 +418,7 @@ async function dialInner(){
     if(mState()!=='done') return;
     settle(); const claimed=pending; balance+=pending; claimedSessions++; log(`✅ Claimed ${claimed.toFixed(3)} SUTRA`); addClaim('mining',claimed); pending=0; miningStart=0; boostLevel=0; boostEnd=0;
     await saveNow(); render(); showSuccess(`${claimed.toFixed(3)} SUTRA added to your balance`);
+    if(referredBy && claimedSessions>=2) window.refMarkQualified(getUserId()).catch(()=>{});
     return;
   }
   if(st!=='idle') return;
@@ -522,8 +432,6 @@ async function dialInner(){
   }
   miningStart=ts; lastCalc=ts; pending=0; boostLevel=0; boostEnd=0; totalSessions++;
   log("⛏️ 24-hour mining started"); await saveNow(); render();
-  // referral reward unlocks the moment a referred friend starts their FIRST session (real engagement, no waiting)
-  if(referredBy && totalSessions===1) window.refMarkQualified(getUserId()).catch(()=>{});
 }
 async function handleBooster(n){ if(busy) return; busy=true; try{ await boosterInner(n); } finally{ busy=false; } }
 async function boosterInner(n){
@@ -577,21 +485,27 @@ async function giftInner(){
   await saveNow(); renderGift(); render(); showSuccess(`Day ${day} gift claimed: ${(day*100).toLocaleString()} SUTRA`);
 }
 function renderVideos(){
-  const claimedToday = vidDay===dayNum();
-  $('vidList').innerHTML = claimedToday
-    ? `<div class="vrow"><span>🎬 Video claim</span><em class="ok">✓ Claimed today</em></div>`
-    : `<div class="vrow"><span>🎬 Video claim</span><button class="vbtn" onclick="claimVideo()">Watch & claim +${VIDEO_CLAIM_REWARD}</button></div>`;
+  const today = vidDay===dayNum(), doneList = today ? vidDone : [];
+  $('vidList').innerHTML = VIDEO_CLAIMS.map((v,i)=>{
+    const n=i+1;
+    if(!v.url) return `<div class="vrow"><span>🎬 Video claim ${n}</span><em>Coming soon</em></div>`;
+    if(doneList.includes(i)) return `<div class="vrow"><span>🎬 Video claim ${n}</span><em class="ok">✓ Claimed today</em></div>`;
+    return `<div class="vrow"><span>🎬 Video claim ${n}</span><button class="vbtn" onclick="claimVideo(${i})">Watch & claim +${v.reward}</button></div>`;
+  }).join("");
 }
-async function claimVideo(){
+async function claimVideo(i){
   if(busy) return; busy=true;
   try{
     if(!loaded && getUserId() && !window.linkError){ showToast('Loading… please wait'); return; }
     if(!loaded){ showToast('Could not connect — see Profile for details','error'); return; }
-    if(vidDay===dayNum()){ showToast("Already claimed today. Come back tomorrow."); return; }
-    try{ await playAd(); }catch(e){ return; }               // uses the shared 15/20/25/30s ad cycle
-    if(vidDay===dayNum()) return;                            // guard against a double-tap finishing twice
-    balance+=VIDEO_CLAIM_REWARD; vidDay=dayNum(); log(`🎬 Video claim reward (${VIDEO_CLAIM_REWARD} SUTRA)`); addClaim('video',VIDEO_CLAIM_REWARD);
-    await saveNow(); renderVideos(); render(); showSuccess(`Video reward: ${VIDEO_CLAIM_REWARD.toLocaleString()} SUTRA`);
+    const v=VIDEO_CLAIMS[i]; if(!v||!v.url) return;
+    if(vidDay!==dayNum()){ vidDay=dayNum(); vidDone=[]; }
+    if(vidDone.includes(i)){ showToast("Already claimed today. Come back tomorrow."); return; }
+    try{ await playAd({secs:v.seconds, url:v.url}); }catch(e){ return; }
+    if(vidDay!==dayNum()){ vidDay=dayNum(); vidDone=[]; }
+    if(vidDone.includes(i)) return;
+    balance+=v.reward; vidDone.push(i); log(`🎬 Video ${i+1} reward claimed (${v.reward} SUTRA)`); addClaim('video',v.reward);
+    await saveNow(); renderVideos(); render(); showSuccess(`Video reward: ${v.reward.toLocaleString()} SUTRA`);
   } finally{ busy=false; }
 }
 async function pushLeaderboardRow(){
@@ -639,41 +553,16 @@ async function checkReferrals(){
   // this account owns and writes itself, so no cross-user write is ever needed.
   if(!loaded) return;
   try{
-    const myId=getUserId();
-    const list=await window.refListFor(myId); let wait=0, changed=false;
+    const list=await window.refListFor(getUserId()); let wait=0, changed=false;
     for(const r of list){
       if(!r.qualified) { wait++; continue; }
       if(await window.refClaimed(r.id)) continue;
       try{
-        await window.refClaim(r.id, myId);
-        balance+=500; referralCount++; changed=true; log("🤝 500 SUTRA referral reward: your friend started mining"); addClaim('referral',500);
+        await window.refClaim(r.id, getUserId());
+        balance+=500; referralCount++; changed=true; log("🤝 500 SUTRA referral reward: your friend completed 2 sessions"); addClaim('referral',500);
       }catch(e){}   // someone/something already claimed this friend — skip silently
     }
-    refWaiting=wait;
-
-    // one-time milestone: 5 direct referrals -> +1000, exactly once, never repeats
-    if(!milestone5Claimed && referralCount>=5){
-      milestone5Claimed=true; balance+=1000; changed=true;
-      log("🏆 Milestone: 5 referrals reached — 1000 SUTRA bonus"); addClaim('referral',1000);
-    }
-
-    // level-2 bonus: ONE level up only. If a friend YOU referred has themselves referred someone
-    // who is now qualified, you get a fixed +100 — once per grandchild, never escalating further.
-    for(const r of list){
-      try{
-        const grandkids=await window.refListFor(r.id);
-        for(const g of grandkids){
-          if(!g.qualified) continue;
-          if(await window.refClaimed2(g.id)) continue;
-          try{
-            await window.refClaim2(g.id, myId, r.id);
-            balance+=100; changed=true; log("🤝 100 SUTRA bonus: your referral's friend joined too"); addClaim('referral',100);
-          }catch(e){}
-        }
-      }catch(e){}
-    }
-
-    if(changed) await saveNow(); render();
+    refWaiting=wait; if(changed) await saveNow(); render();
   }catch(e){}
 }
 function openSupport(){ tg?.openTelegramLink ? tg.openTelegramLink(supportLink) : window.open(supportLink,"_blank"); }
@@ -707,10 +596,9 @@ window.bootApp = async function(au){
   d=d||{}; profile=d;
   balance=Math.max(0,d.balance||0); pending=Math.max(0,d.pending||0); miningStart=d.miningStart||0;
   boostLevel=d.boostLevel||0; boostEnd=d.boostEnd||0; lastCalc=d.lastCalc||Date.now();
-  totalSessions=d.totalSessions||0; referralCount=d.referralCount||0; adIndex=d.adIndex||0; activity=d.activity||[]; claims=Array.isArray(d.claims)?d.claims:[]; totalEarned=(typeof d.totalEarned==='number')?d.totalEarned:balance; vidDay=(d.vidDay ?? -1);
-  referredBy=d.referredBy||""; claimedSessions=d.claimedSessions||0; dailyStreak=d.dailyStreak||0; lastDailyDay=(d.lastDailyDay ?? -1); milestone5Claimed=!!d.milestone5Claimed;
+  totalSessions=d.totalSessions||0; referralCount=d.referralCount||0; adIndex=d.adIndex||0; activity=d.activity||[]; claims=Array.isArray(d.claims)?d.claims:[]; totalEarned=(typeof d.totalEarned==='number')?d.totalEarned:balance; vidDay=(d.vidDay ?? -1); vidDone=Array.isArray(d.vidDone)?d.vidDone:[];
+  referredBy=d.referredBy||""; claimedSessions=d.claimedSessions||0; dailyStreak=d.dailyStreak||0; lastDailyDay=(d.lastDailyDay ?? -1);
   boostDay=(d.boostDay ?? -1); boostUses=d.boostUses||0;
-  tapFuel=(d.tapFuel ?? TAP_FUEL_MAX); tapFuelAt=d.tapFuelAt||Date.now(); tapBoostEnd=d.tapBoostEnd||0; tapCooldownEnd=d.tapCooldownEnd||0;
   if(tgUser && !d.name){ profile.name=(tgUser.first_name+" "+(tgUser.last_name||"")).trim(); profile.firstName=tgUser.first_name; profile.lastName=tgUser.last_name||""; }
   loaded=true; window.__ready=true; const sc=$('secCheck'); if(sc) sc.remove();
   const firstTime = !d.seenWelcome;
@@ -728,7 +616,7 @@ window.bootApp = async function(au){
   renderProfile(); renderActivity(); renderClaims(); setupShare(); render();
   if(firstTime) openSheet('welcomeModal');
   loadAnnouncements(); loadLeaderboard();
-  renderGift(); renderVideos(); renderBadges(); checkReferrals();
+  renderGift(); renderVideos(); checkReferrals();
   setInterval(loop,1000); setInterval(loadLeaderboard,60000); setInterval(checkReferrals,60000);
   // single periodic write to Firebase (balance/session/online state), spread out so a huge number of
   // concurrent users never floods Firestore with per-second writes
@@ -738,6 +626,6 @@ window.bootApp = async function(au){
 };
 
 Object.assign(window,{ claimVideo, authStep, claimDailyReward, closeSheet, dialAction, doLogin, genUserId, handleBooster, hideAuth, hideSuccess,
-  openSheet, openSupport, savePhoto, saveProfile, switchTab, verifyAccount, showAuth, logout, coreTap, activateTapBoost });
+  openSheet, openSupport, savePhoto, saveProfile, switchTab, verifyAccount, showAuth, logout });
 
 window.__appLoaded = true;
