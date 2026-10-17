@@ -28,7 +28,6 @@ body{background:radial-gradient(120% 70% at 50% 0%,#2b1a0d 0%,var(--ink) 60%);}
 .chip b{display:block;color:var(--jade);font-size:13px}
 .iconbtn{background:var(--panel);border:1px solid var(--line);border-radius:12px;width:38px;height:38px;color:var(--white);font-size:16px;position:relative}
 .dot{position:absolute;top:-4px;right:-4px;background:var(--lotus);border-radius:9px;font-size:9px;padding:1px 5px;font-weight:700}
-.tick{position:absolute;top:-4px;right:-4px;background:var(--jade);color:#012a1d;border-radius:50%;width:15px;height:15px;font-size:10px;font-weight:900;display:flex;align-items:center;justify-content:center;line-height:1}
 
 /* screens */
 .screen{display:none;flex:1;overflow-y:auto;padding:6px 14px 96px;flex-direction:column}
@@ -54,7 +53,7 @@ body{background:radial-gradient(120% 70% at 50% 0%,#2b1a0d 0%,var(--ink) 60%);}
 .mandala{position:absolute;inset:14%;opacity:.55;animation:spin 40s linear infinite;animation-play-state:paused}
 .on-air .mandala{animation-play-state:running;opacity:.9}
 @keyframes spin{to{transform:rotate(360deg)}}
-.core{touch-action:manipulation;position:relative;width:62%;aspect-ratio:1;border-radius:50%;border:0;color:#2a1600;
+.core{position:relative;width:62%;aspect-ratio:1;border-radius:50%;border:0;color:#2a1600;
   background:radial-gradient(circle at 35% 30%,#ffe08a,var(--saffron) 45%,var(--ember));
   box-shadow:0 0 0 6px rgba(255,176,32,.12),0 14px 40px rgba(255,122,26,.35),inset 0 -8px 18px rgba(120,50,0,.35);
   display:flex;flex-direction:column;align-items:center;justify-content:center;transition:transform .08s}
@@ -66,17 +65,6 @@ body{background:radial-gradient(120% 70% at 50% 0%,#2b1a0d 0%,var(--ink) 60%);}
 @keyframes breathe{50%{box-shadow:0 0 0 14px rgba(255,176,32,.08),0 14px 50px rgba(255,122,26,.5),inset 0 -8px 18px rgba(120,50,0,.35)}}
 .core.live{background:radial-gradient(circle at 35% 30%,#8ff5cf,var(--jade) 50%,#0f9f73);color:#012a1d;box-shadow:0 0 0 6px rgba(46,230,166,.12),0 14px 40px rgba(46,230,166,.3)}
 .float{position:absolute;font-weight:800;color:var(--jade);pointer-events:none;animation:up 1s ease-out forwards;font-size:16px}
-.float.tap{font-size:22px;animation:tapUp .8s cubic-bezier(.2,.9,.3,1.3) forwards;text-shadow:0 2px 10px rgba(0,0,0,.4)}
-.float.tap:nth-of-type(3n){color:var(--saffron)}
-.float.tap:nth-of-type(3n+1){color:var(--jade)}
-.float.tap:nth-of-type(3n+2){color:var(--lotus)}
-.float.tap.boost{color:var(--saffron);font-size:26px;text-shadow:0 0 14px rgba(255,176,32,.8)}
-@keyframes tapUp{0%{transform:translateY(0) scale(.6);opacity:0}15%{transform:translateY(-10px) scale(1.3);opacity:1}100%{transform:translateY(-80px) scale(1);opacity:0}}
-.float.boost{color:var(--saffron)}
-.float.tap{font-size:20px;animation:tapUp .7s cubic-bezier(.2,.8,.3,1.4) forwards}
-@keyframes tapUp{0%{transform:translateY(0) scale(.4);opacity:0}15%{transform:translateY(-6px) scale(1.25);opacity:1}100%{transform:translateY(-60px) scale(1);opacity:0}}
-.float.tap.c1{color:var(--jade)}.float.tap.c2{color:var(--saffron)}.float.tap.c3{color:var(--lotus)}.float.tap.c4{color:#7adcff}
-.float.tap.boost{color:var(--saffron);font-weight:900}
 @keyframes up{to{transform:translateY(-70px);opacity:0}}
 
 /* bottom of mine screen */
@@ -183,18 +171,7 @@ input[type=password],input[type=email],input[type=tel]{width:100%;padding:11px;b
 .histLabel{font-size:9px;color:var(--mist);font-weight:700}
 .tagline{font-size:11px;color:var(--saffron);font-weight:700;margin-bottom:6px}
 .vrow em{font-style:normal;font-size:11px;color:var(--mist)}.vbtn{border:0;border-radius:10px;padding:8px 12px;font-weight:800;font-size:12px;color:#1a0f00;background:linear-gradient(90deg,var(--saffron),var(--ember))}
-.vrow{display:flex;justify-content:space-between;align-items:center;padding:9px 0;border-bottom:1px solid var(--line);font-size:13px;color:var(--mist)}.vrow:last-child{border-bottom:0}
-.badges{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
-.badge{background:var(--ink);border:1px solid var(--line);border-radius:12px;padding:10px 4px;text-align:center;opacity:.35}
-.badge.on{opacity:1;border-color:var(--jade)}
-.badge .ic{font-size:22px}
-.badge .lb{font-size:9px;color:var(--mist);margin-top:4px;line-height:1.3}
-.badge.on .lb{color:var(--white)}
-.tapcard{border-color:var(--lotus);background:linear-gradient(135deg,#3b1424,var(--panel))}
-.tapboostbtn{background:linear-gradient(90deg,#ff5d8f,var(--saffron))}
-.core.tapped{animation:tapPulse .25s ease-out}
-@keyframes tapPulse{0%{transform:scale(1)}50%{transform:scale(1.08);box-shadow:0 0 0 14px rgba(255,93,143,.25),0 14px 50px rgba(255,93,143,.5)}100%{transform:scale(1)}}
-.float.tap{color:var(--lotus);font-size:20px;text-shadow:0 0 10px rgba(255,93,143,.6)}
+.vrow{display:flex;justify-content:space-between;align-items:center;padding:9px 0;border-bottom:1px solid var(--line);font-size:13px;color:var(--mist)}.vrow:last-child{border-bottom:0}.soonpill{font-size:10px;font-weight:800;color:var(--saffron);border:1px solid var(--line);border-radius:20px;padding:3px 9px}
 </style>
 </head>
 <body>
@@ -210,7 +187,7 @@ input[type=password],input[type=email],input[type=tel]{width:100%;padding:11px;b
     <div class="avatar" id="uPic" onclick="switchTab('profile')">S</div>
     <div class="who"><b id="uName">Miner</b><small id="rankBox">🪨 New Miner</small></div>
     <div class="chip">Per hour<b id="rateHr">0</b></div>
-    <button class="hist" onclick="openSheet('claimModal')"><span class="histIcon">📜<span class="tick">✓</span></span><span class="histLabel">History</span></button>
+    <button class="hist" onclick="openSheet('claimModal')"><span class="histIcon">📜<span class="dot" id="alertCount">0</span></span><span class="histLabel">History</span></button>
     <button class="iconbtn" onclick="openSheet('annModal')" title="Alerts">🔔</button>
   </div>
 
@@ -228,7 +205,7 @@ input[type=password],input[type=email],input[type=tel]{width:100%;padding:11px;b
         <circle class="bg" cx="50" cy="50" r="45"/><circle class="fg" id="ringFg" cx="50" cy="50" r="45" pathLength="283"/>
       </svg>
       <svg class="mandala" viewBox="0 0 100 100" fill="none" stroke="#ffb020" stroke-width=".6"><circle cx="50" cy="50" r="48"/><circle cx="50" cy="50" r="36"/><g id="petals"></g></svg>
-      <button class="core idle" id="mineBtn" onclick="coreTap(event)" disabled>
+      <button class="core idle" id="mineBtn" onclick="dialAction()" disabled>
         <div class="sym" id="mineIcon">ॐ</div><div class="lbl" id="mineText">Loading…</div><div class="sub" id="mineSubText">Please wait</div>
       </button>
     </div>
@@ -249,11 +226,9 @@ input[type=password],input[type=email],input[type=tel]{width:100%;padding:11px;b
       </div>
     </div>
 
-    <div class="card tapcard" style="margin:0">
-      <div class="row" style="padding:0 0 2px"><span>⚡ Tap Fuel</span><b id="fuelText">500 / 500</b></div>
-      <p style="margin:0 0 8px;font-size:11px;color:var(--mist)">Tap the coin above for bonus SUTRA on top of your 24h mining — separate from your session reward.</p>
-      <div class="bar"><i id="fuelFill" style="width:100%"></i></div>
-      <button class="btn tapboostbtn" id="tapBoostBtn" style="margin-top:10px" onclick="activateTapBoost()">⚡ 2x Fuel — Watch video</button>
+    <div class="card" style="margin:0">
+      <h3>🎬 Video rewards</h3>
+      <div class="vrow"><span>🎬 Video claim 1</span><span class="soonpill">Coming soon</span></div><div class="vrow"><span>🎬 Video claim 2</span><span class="soonpill">Coming soon</span></div><div class="vrow"><span>🎬 Video claim 3</span><span class="soonpill">Coming soon</span></div><div class="vrow"><span>🎬 Video claim 4</span><span class="soonpill">Coming soon</span></div><div class="vrow"><span>🎬 Video claim 5</span><span class="soonpill">Coming soon</span></div><div class="vrow"><span>🎬 Video claim 6</span><span class="soonpill">Coming soon</span></div><div class="vrow"><span>🎬 Video claim 7</span><span class="soonpill">Coming soon</span></div><div class="vrow"><span>🎬 Video claim 8</span><span class="soonpill">Coming soon</span></div><div class="vrow"><span>🎬 Video claim 9</span><span class="soonpill">Coming soon</span></div><div class="vrow"><span>🎬 Video claim 10</span><span class="soonpill">Coming soon</span></div>
     </div>
       </div>
 
@@ -272,7 +247,7 @@ input[type=password],input[type=email],input[type=tel]{width:100%;padding:11px;b
       <button class="btn tg" onclick="window.open(officialGroupLink,'_blank')">Join Telegram group</button>
       <button class="btn alt" onclick="openSupport()">Contact support</button></div>
     <div class="card"><h3>Invite friends, earn 500 $SUTRA each</h3>
-      <p>You get 500 SUTRA as soon as your friend starts their first mining session. Reach 5 referrals for a one-time 1,000 SUTRA bonus. If your friend refers someone too, you get an extra 100 SUTRA.</p>
+      <p>You get the bonus after your friend starts mining, claims their first session, and completes a second session.</p>
       <div class="row">Rewarded friends<b id="refCount2">0</b></div>
       <div class="row">Waiting for friend<b id="refWaiting">0</b></div>
       <button class="btn" onclick="shareApp()">Share</button>
@@ -345,7 +320,6 @@ input[type=password],input[type=email],input[type=tel]{width:100%;padding:11px;b
       <button class="btn alt" id="authClose" style="display:none" onclick="hideAuth()">Cancel</button>
     </div>
     <div class="card" id="accountCard"></div>
-    <div class="card"><h3>🏆 Achievements</h3><div class="badges" id="badgeGrid"></div></div>
   </div>
 
   <div class="tabs">
@@ -393,7 +367,7 @@ input[type=password],input[type=email],input[type=tel]{width:100%;padding:11px;b
 function switchTab(t){document.querySelectorAll('.screen').forEach(function(e){e.classList.remove('on')});document.querySelectorAll('.tab').forEach(function(e){e.classList.toggle('on',e.dataset.t===t)});var s=document.getElementById('s-'+t);if(s)s.classList.add('on');}
 function openSheet(id){document.getElementById(id).style.display='flex'}
 function closeSheet(id){document.getElementById(id).style.display='none'}
-setTimeout(function(){ if(!window.__ready){ var sc0=document.getElementById('secCheck'); if(sc0) sc0.remove(); var m=document.getElementById('mineText'); if(m){m.textContent='No connection'; var c=document.getElementById('connErr'); if(c){c.style.display='block'; c.innerHTML='<h3 style="color:#ff5d8f">⚠️ App did not finish loading</h3><p>Check Firebase: Authentication → Anonymous ON, Firestore rules published, and your internet.</p>';} document.getElementById('mineSubText').textContent='Tap to retry'; var b=document.getElementById('mineBtn'); b.disabled=false; b.onclick=function(){location.reload()};} } },10000);
+setTimeout(function(){ if(!window.__ready){ var m=document.getElementById('mineText'); if(m){m.textContent='No connection'; var c=document.getElementById('connErr'); if(c){c.style.display='block'; c.innerHTML='<h3 style="color:#ff5d8f">⚠️ App did not finish loading</h3><p>Check Firebase: Authentication → Anonymous ON, Firestore rules published, and your internet.</p>';} document.getElementById('mineSubText').textContent='Tap to retry'; var b=document.getElementById('mineBtn'); b.disabled=false; b.onclick=function(){location.reload()};} } },10000);
 </script>
 <script type="module" src="app.js"></script>
 </body>
