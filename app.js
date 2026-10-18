@@ -19,32 +19,27 @@ window.db = db; window.auth = auth;
 window.fsCollection = collection; window.fsGetDocs = getDocs;
 const tgId = () => window.Telegram?.WebApp?.initDataUnsafe?.user?.id;
 
-// ---- every user (Telegram or browser) gets a real Firebase Auth session, and their
-// data-doc id ("docKey") is bound to that auth uid exactly once, in userLinks/{docKey}.
-// Firestore rules use that binding to make sure a user can only ever read/write their OWN doc.
+// every user gets a real Firebase Auth session; their data-doc id ("docKey") is bound to the auth uid in userLinks/{docKey}
 window.saveUserData = async (uid, data) => {
   if (!uid) return false;
-  try { await setDoc(doc(db, "users", String(uid)), { ...data, updatedAt: serverTimestamp() }, { merge: true }); return true; }
+  try { await setDoc(doc(db, "users", String(uid)), { ...(window.__hasFirstSeen ? {} : { firstSeen: serverTimestamp() }), ...data, updatedAt: serverTimestamp() }, { merge: true }); window.__hasFirstSeen = true; return true; }
   catch (e) { console.error(e); return false; }
 };
 window.loadUserData = async (uid) => {
   if (!uid) return null;
   const s = await getDoc(doc(db, "users", String(uid)));
+  if (s.exists() && s.data().firstSeen) window.__hasFirstSeen = true;
   return s.exists() ? s.data() : null;
 };
 window.uploadProfileImage = async (uid, file) => {
-  // stored under the caller's own Auth uid, never the docKey, so Storage rules can check request.auth.uid directly
-  // Storage SDK is loaded only when a photo is actually uploaded (faster app start)
   const S = await import("https://www.gstatic.com/firebasejs/12.2.1/firebase-storage.js");
   const storage = S.getStorage(app);
   const r = S.ref(storage, `profile_pictures/${auth.currentUser.uid}/${Date.now()}_${file.name}`);
   return S.getDownloadURL((await S.uploadBytes(r, file)).ref);
 };
 
-// ---- masked, public leaderboard row: no email/photo/session data, only what ranking needs ----
 window.saveLeaderboardRow = (docKey, row) => setDoc(doc(db, "leaderboard", String(docKey)), { ...row, updatedAt: serverTimestamp() }, { merge: true });
 
-// ---- one-time, immutable ownership link: docKey -> authUid. First write wins and can never change. ----
 async function ensureLink(docKey, authUid) {
   const r = doc(db, "userLinks", String(docKey));
   const existing = await getDoc(r);
@@ -56,10 +51,6 @@ async function ensureLink(docKey, authUid) {
 }
 window.ensureLink = ensureLink;
 
-// ---- reverse lookup: authUid -> the docKey it was originally registered under.
-// Without this, a registered account would resolve to a DIFFERENT docKey depending on
-// whether the current session happens to be inside Telegram or not, and cross-device
-// login (the whole point of "create account") would silently load an empty account. ----
 async function ensureAuthIndex(authUid, docKey) {
   const r = doc(db, "authIndex", authUid);
   const existing = await getDoc(r);
@@ -69,11 +60,9 @@ async function ensureAuthIndex(authUid, docKey) {
 }
 window.ensureAuthIndex = ensureAuthIndex;
 
-// Account: Firebase Auth stores the password securely (hashed). We never store it in Firestore.
 window.registerAccount = async (p) => {
   if (await window.userIdExists(p.userId)) throw new Error("This User ID is already taken. Choose another.");
   const guest = auth.currentUser && auth.currentUser.isAnonymous;
-  // a guest who already mined keeps the same account (same data); otherwise create a new one
   const cred = guest ? await linkWithCredential(auth.currentUser, EmailAuthProvider.credential(p.email, p.password))
                      : await createUserWithEmailAndPassword(auth, p.email, p.password);
   const authUid = cred.user.uid;
@@ -83,7 +72,7 @@ window.registerAccount = async (p) => {
     await runTransaction(db, async (tx) => {
       const r = doc(db, "userIds", p.userId);
       if ((await tx.get(r)).exists()) throw new Error("This User ID is already taken. Choose another.");
-      tx.set(r, { authUid, emailHash: await sha256(p.email.toLowerCase()) });   // never store the email itself in this readable registry
+      tx.set(r, { authUid, emailHash: await sha256(p.email.toLowerCase()) });
     });
   } catch (e) { if (!guest) await cred.user.delete(); throw e; }
   const old = await window.loadUserData(docKey);
@@ -107,9 +96,7 @@ window.loginAccount = async (userId, email, password) => {
   }
 };
 
-// ---- referrals: every write touches ONLY the caller's own document, never someone else's ----
-// referrals/{referredDocKey}      -- created & updated only by the referred friend themselves
-// referralClaims/{referredDocKey} -- created only by the referrer, once, to collect their own reward
+// referrals: every write touches ONLY the caller's own document
 window.refCreate = (referredId, referrerId) => setDoc(doc(db, "referrals", String(referredId)), { referrerId: String(referrerId), qualified: false, createdAt: serverTimestamp() });
 window.refMarkQualified = (referredId) => setDoc(doc(db, "referrals", String(referredId)), { qualified: true }, { merge: true });
 window.refListFor = async (myId) => {
@@ -119,7 +106,6 @@ window.refListFor = async (myId) => {
 window.refClaim = (referredId, referrerId) => setDoc(doc(db, "referralClaims", String(referredId)), { referrerId: String(referrerId), claimedAt: serverTimestamp() });
 window.refClaimed = async (referredId) => (await getDoc(doc(db, "referralClaims", String(referredId)))).exists();
 
-// Atomic start: refuses if the server already has a session (running OR finished-but-unclaimed).
 window.tryStartSession = (uid, ts) => runTransaction(db, async (tx) => {
   const r = doc(db, "users", String(uid)); const d = (await tx.get(r)).data() || {};
   if (d.miningStart) return { ok: false, data: d };
@@ -127,6 +113,7 @@ window.tryStartSession = (uid, ts) => runTransaction(db, async (tx) => {
   return { ok: true };
 });
 window.lbTop = async () => { const s = await getDocs(query(collection(db, "leaderboard"), orderBy("balance", "desc"), limit(10))); const a = []; s.forEach(d => a.push(d.data())); return a; };
+window.lbTopRef = async () => { const s = await getDocs(query(collection(db, "leaderboard"), orderBy("refs", "desc"), limit(10))); const a = []; s.forEach(d => a.push(d.data())); return a; };
 window.lbStats = async () => {
   const c = collection(db, "leaderboard");
   const [t, o] = await Promise.all([ getAggregateFromServer(c, { users: count(), mined: sum("balance") }),
@@ -141,24 +128,19 @@ let booted = false;
 onAuthStateChanged(auth, async (u) => {
   if (!u) {
     if (booted) return;
-    try { await signInAnonymously(auth); }   // every session, Telegram or browser, gets a real auth uid
-    catch (e) { console.error(e); if (!booted) { booted = true; window.linkError = 'Sign-in failed (' + (e.code || e.message) + ')'; window.bootApp(null); } }
+    try { await signInAnonymously(auth); }
+    catch (e) { console.error(e); if (!booted) { booted = true; window.linkError = 'We could not connect. Please check your internet and try again.'; window.bootApp(null); } }
     return;
   }
   let docKey;
   if (u.isAnonymous) {
-    // fresh guest/Telegram session with no registered account yet: docKey follows this device's context
     docKey = tgId() ? String(tgId()) : u.uid;
   } else {
-    // a registered account: ALWAYS resolve the one true docKey it was created under, no matter
-    // which device or context (Telegram vs. the Play Store app) this login is happening in —
-    // this is what makes "log in with the same User ID/email/password" load the same data everywhere
     try {
       const idx = await getDoc(doc(db, "authIndex", u.uid));
       docKey = idx.exists() ? idx.data().docKey : (tgId() ? String(tgId()) : u.uid);
     } catch (e) { console.error(e); docKey = tgId() ? String(tgId()) : u.uid; }
   }
-  // start loading the user's data at the same time as the ownership check (saves one full round-trip)
   window.__pre = window.loadUserData(docKey).then(d => ({ ok: true, d }), () => ({ ok: false }));
   try { await ensureLink(docKey, u.uid); window.docKey = docKey; }
   catch (e) { console.error(e); window.docKey = null; window.linkError = e.message; }
@@ -166,45 +148,83 @@ onAuthStateChanged(auth, async (u) => {
 });
 
 // ============================================================
-// PART 2: App logic - mining, boosts, gifts, referrals, UI, etc.
+// PART 2: App logic - mining, boosts, tap, gifts, social claims, referrals, UI
 // ============================================================
 const officialGroupLink = "https://t.me/+qBuycU3TidEzMTJl"; window.officialGroupLink = officialGroupLink;
-const BOT_USERNAME = "SutraToken_bot";   // ❤️ your bot username (no @)
-const APP_SHORT_NAME = "";               // ❤️ optional: short name from BotFather /newapp. Leave "" if you set a Main Mini App
-let busy=false;   // one action at a time: blocks double-taps while an ad/save is in progress
+const BOT_USERNAME = "SutraToken_bot";
+const APP_SHORT_NAME = "";
+let busy=false;
 const supportLink = "https://t.me/call/WmasSD9vLGT2vzz_kOebbouFQ4w";
 
-// ╔══════════════════════════════════════════════════════════════════════╗
-// ║ ❤️❤️❤️  VIDEO ADS — PUT YOUR VIDEO LINKS HERE  ❤️❤️❤️                 ║
-// ║ Paste a direct .mp4 link between the quotes. The video plays inside   ║
-// ║ the app before: start mining, boosts, claim mining, daily gift.       ║
-// ║ Videos play in order 1 → 2 → 3 → 4, then repeat.                      ║
-// ╚══════════════════════════════════════════════════════════════════════╝
-const AD_SEQUENCE = [15, 20, 25, 30];   // seconds each video must be watched (video 1, 2, 3, 4)
+// ===== VIDEO ADS: paste direct .mp4 links. Videos play in order 1→2→3→4 then repeat. Empty link = plain timer screen. =====
+const AD_SEQUENCE = [15, 20, 25, 30];
 const AD_VIDEOS = [
-  "",   // ❤️ VIDEO 1 (15s) — paste .mp4 link here, e.g. "https://yourcdn.com/ad1.mp4"
-  "",   // ❤️ VIDEO 2 (20s) — paste .mp4 link here
-  "",   // ❤️ VIDEO 3 (25s) — paste .mp4 link here
-  ""    // ❤️ VIDEO 4 (30s) — paste .mp4 link here
-];             // Empty link = a plain timer screen is shown instead of a video
+  "",   // VIDEO 1 (15s)
+  "",   // VIDEO 2 (20s)
+  "",   // VIDEO 3 (25s)
+  ""    // VIDEO 4 (30s)
+];
 
-// ===== VIDEO CLAIMS (10 slots, shown in the Gift tab) =====
-// ❤️ PUT YOUR VIDEO URL (direct .mp4 link) in "url" for any slot. Empty url = shows "Coming soon".
-// When a url is added, that slot turns into a "Watch & claim" button and the video plays inside the app.
-// seconds = how long the video must be watched, reward = SUTRA given (once per slot per day).
-const VIDEO_CLAIMS = Array.from({length:10}, () => ({ url:"", seconds:20, reward:100 }));   // ❤️ EDIT HERE, e.g. VIDEO_CLAIMS[0] = {url:"https://.../v1.mp4", seconds:20, reward:100}
+// ===== SOCIAL CLAIMS: +100 SUTRA each, once per task, after the 15/20/25/30s video. Put your real links in "url". =====
+const SOCIAL_REWARD = 100;
+const IC={
+ instagram:`<svg viewBox="0 0 32 32"><defs><linearGradient id="igr" x1="0" y1="1" x2="1" y2="0"><stop offset="0" stop-color="#feda75"/><stop offset=".4" stop-color="#fa7e1e"/><stop offset=".7" stop-color="#d62976"/><stop offset="1" stop-color="#4f5bd5"/></linearGradient></defs><rect width="32" height="32" rx="9" fill="url(#igr)"/><rect x="8" y="8" width="16" height="16" rx="5" fill="none" stroke="#fff" stroke-width="2"/><circle cx="16" cy="16" r="4" fill="none" stroke="#fff" stroke-width="2"/><circle cx="21.2" cy="10.8" r="1.2" fill="#fff"/></svg>`,
+ facebook:`<svg viewBox="0 0 32 32"><circle cx="16" cy="16" r="16" fill="#1877f2"/><path d="M17.6 26v-8.8h3l.5-3.5h-3.5v-2.2c0-1 .3-1.7 1.8-1.7h1.8V6.7c-.3 0-1.4-.1-2.6-.1-2.6 0-4.3 1.6-4.3 4.4v2.7h-3v3.5h3V26z" fill="#fff"/></svg>`,
+ youtube:`<svg viewBox="0 0 32 32"><rect y="6" width="32" height="20" rx="6" fill="#f00"/><path d="M13 11.5v9l8-4.5z" fill="#fff"/></svg>`,
+ twitter:`<svg viewBox="0 0 32 32"><rect width="32" height="32" rx="9" fill="#000"/><path d="M9 9l14 14M23 9L9 23" stroke="#fff" stroke-width="2.6" stroke-linecap="round"/></svg>`,
+ telegram:`<svg viewBox="0 0 32 32"><circle cx="16" cy="16" r="16" fill="#229ed9"/><path d="M7 15.6l16.4-6.3c.8-.3 1.5.2 1.2 1.4l-2.8 13.1c-.2.9-.8 1.1-1.5.7l-4.2-3.1-2 2c-.2.2-.4.4-.8.4l.3-4.3 7.8-7c.3-.3-.1-.5-.5-.2l-9.6 6-4.1-1.3c-.9-.3-.9-.9.2-1.3z" fill="#fff"/></svg>`,
+ support:`<svg viewBox="0 0 32 32"><circle cx="16" cy="16" r="16" fill="#ff7a1a"/><circle cx="16" cy="16" r="8" fill="none" stroke="#fff" stroke-width="3"/><circle cx="16" cy="16" r="3" fill="#fff"/></svg>`};
+IC.tggroup=IC.telegram;
+const SOCIAL_WAIT=8000, socialOpen={};   // Claim unlocks 8s after the person taps Join/Follow
+const SOCIALS = [
+  { id:'instagram', n:'Instagram',        act:'Follow',    url:'' },   // paste your Instagram page link
+  { id:'facebook',  n:'Facebook',         act:'Follow',    url:'' },   // paste your Facebook page link
+  { id:'youtube',   n:'YouTube',          act:'Subscribe', url:'' },   // paste your YouTube channel link
+  { id:'twitter',   n:'Twitter / X',      act:'Follow',    url:'' },   // paste your Twitter/X profile link
+  { id:'telegram',  n:'Telegram channel', act:'Join',      url:'' },   // paste your Telegram channel link
+  { id:'tggroup',   n:'Telegram group',   act:'Join',      url:officialGroupLink },
+  { id:'support',   n:'Support group',    act:'Join',      url:supportLink }
+];
 
 const TOTAL_SUPPLY = 2e12, DAY = 864e5, BOOST_MS = 144e5, BASE = 2000/86400;
-const BOOST_BONUS = {1:500, 2:500, 3:1000};             // extra SUTRA over the 4-hour boost window
-const BOOST_DAILY_LIMIT = 2;                            // booster can be started this many times per 24h
+const BOOST_BONUS = {1:500, 2:500, 3:1000};
+const BOOST_DAILY_LIMIT = 2;
+const FUEL_MAX = 500;                                   // taps per day
+const REF_LEVELS = 20, refNeed = n => 5*n, refReward = n => 300*n;   // 5,10,15… friends → 300,600,900… SUTRA
 const boostRate = () => boostLevel ? BOOST_BONUS[boostLevel]/(BOOST_MS/1000) : 0;
 const $ = id => document.getElementById(id);
 const dayNum = () => Math.floor((Date.now()-new Date().getTimezoneOffset()*6e4)/864e5);
+// ===== sound + haptic feedback (sounds are synthesized, no audio files needed) =====
+const settings={sound:true,vibrate:true,strength:'medium',notify:true,mine:true};
+let _ac;
+function sfx(t){
+  if(!settings.sound) return;
+  try{
+    _ac=_ac||new (window.AudioContext||window.webkitAudioContext)(); if(_ac.state==='suspended') _ac.resume();
+    const N={tap:[[660,.04]],click:[[440,.03]],success:[[523,.09],[659,.09],[784,.14]],error:[[220,.14],[180,.14]],level:[[523,.1],[659,.1],[784,.1],[1047,.24]],notify:[[880,.08],[1175,.12]]}[t]||[];
+    let at=_ac.currentTime;
+    N.forEach(([f,d])=>{ const o=_ac.createOscillator(), g=_ac.createGain(); o.type=t==='error'?'sawtooth':'sine'; o.frequency.value=f;
+      g.gain.setValueAtTime(.0001,at); g.gain.exponentialRampToValueAtTime(t==='tap'||t==='click'?.05:.12,at+.01); g.gain.exponentialRampToValueAtTime(.0001,at+d);
+      o.connect(g); g.connect(_ac.destination); o.start(at); o.stop(at+d+.02); at+=d; });
+  }catch(e){}
+}
+function haptic(kind='tick'){
+  if(!settings.vibrate||settings.strength==='off') return;
+  try{
+    const h=window.Telegram?.WebApp?.HapticFeedback;
+    if(kind!=='tick' && h?.notificationOccurred) return h.notificationOccurred(kind);
+    if(kind==='tick' && h?.impactOccurred) return h.impactOccurred({light:'light',medium:'medium',strong:'heavy'}[settings.strength]);
+    const ms={light:10,medium:25,strong:45}[settings.strength]; navigator.vibrate?.(kind==='tick'?ms:[ms,40,ms*2]);
+  }catch(e){}
+}
+
 function showToast(msg, kind='info'){
+  if(kind==='error'){ sfx('error'); haptic('error'); }
   const t=$('toastBox'); t.textContent=msg; t.className='toast show '+(kind==='error'?'err':'');
   clearTimeout(window._toastT); window._toastT=setTimeout(()=>t.classList.remove('show'),2600);
 }
 function showSuccess(title, msg){
+  sfx('success'); haptic('success');
   if(msg===undefined){ msg=title; title='Successful'; }
   const ov=$('successOv'); ov.querySelector('.ovtitle').innerText=title; $('ovMsg').innerText=msg; ov.classList.remove('done'); ov.classList.add('show');
   clearTimeout(window._ovSpin); clearTimeout(window._ovHide);
@@ -233,14 +253,17 @@ document.querySelectorAll('.modal').forEach(m=>m.addEventListener('click',e=>{ i
 let loaded=false, profile={}, authUser=null;
 let balance=0, pending=0, miningStart=0, boostLevel=0, boostEnd=0, lastCalc=Date.now();
 let totalSessions=0, referralCount=0, adIndex=0, activity=[], referredBy="", claimedSessions=0, dailyStreak=0, lastDailyDay=-1, refWaiting=0, boostDay=-1, boostUses=0;
-let claims=[], totalEarned=0, vidDay=-1, vidDone=[];   // saved claim history: mining, daily gift, referral rewards
+let claims=[], totalEarned=0;
+let socialDone=[], tapDay=-1, fuel=FUEL_MAX, tapMult=1, refLevelPaid=0;
+let refTotal=0, refSeen=0, notifs=[];
+let badgesSeen=null, milestonePaid=[], refHist={}, ciDay=-1, ciStreak=0, chDay=-1, chProg={}, chDone=[], combo=0, lastTapT=0, dayHist={}, histFirst=-1, alertMark={s:0,soon:0,done:0};
 let globalMined=0, globalUsers=0, onlineUsers=0, tick=0;
 
-const snapshot = () => ({balance, pending, miningStart, boostLevel, boostEnd, lastCalc, totalSessions, referralCount, adIndex, activity, referredBy, claimedSessions, dailyStreak, lastDailyDay, boostDay, boostUses, claims, totalEarned, vidDay, vidDone});
+const snapshot = () => ({balance, pending, miningStart, boostLevel, boostEnd, lastCalc, totalSessions, referralCount, adIndex, activity, referredBy, claimedSessions, dailyStreak, lastDailyDay, boostDay, boostUses, claims, totalEarned, socialDone, tapDay, fuel, tapMult, refLevelPaid, refSeen, notifs, settings, badgesSeen, milestonePaid, refHist, ciDay, ciStreak, chDay, chProg, chDone, dayHist, histFirst, alertMark});
 async function saveNow(extra={}){ const u=getUserId(); if(!loaded||!u) return; await window.saveUserData(u,{...snapshot(),...extra}); pushLeaderboardRow(); }
 function log(m){ activity.unshift({m, t:new Date().toLocaleString()}); activity.length=Math.min(activity.length,50); renderActivity(); }
-const CLAIM_LABEL={mining:"⛏️ Mining claimed",gift:"🎁 Daily gift claimed",video:"🎬 Video reward",referral:"🤝 Referral reward"};
-function addClaim(type, amt){ totalEarned+=Number(amt)||0; claims.unshift({type, amt:Number(amt), t:Date.now()}); claims.length=Math.min(claims.length,100); renderClaims(); }
+const CLAIM_LABEL={mining:"⛏️ Mining claimed",gift:"🎁 Daily gift claimed",video:"🎬 Video reward",social:"🔗 Social task",streak:"🔥 Streak bonus",checkin:"📅 Daily check-in",challenge:"🎯 Daily challenge",milestone:"🎯 Referral milestone",referral:"🤝 Referral level reward"};
+function addClaim(type, amt){ totalEarned+=Number(amt)||0; if(type!=='mining') histAdd(dayNum(),'o',Number(amt)||0); claims.unshift({type, amt:Number(amt), t:Date.now()}); claims.length=Math.min(claims.length,100); renderClaims(); }
 function renderClaims(){
   $('alertCount').innerText = claims.length;
   const total = claims.reduce((a,c)=>a+(c.amt||0),0);
@@ -351,11 +374,11 @@ function settle(now=Date.now()){
     let bs=0;
     if(boostLevel>0) bs=Math.max(0,Math.min(t1,boostEnd)-Math.max(t0,boostEnd-BOOST_MS))/1000;
     const secs=(t1-t0)/1000;
-    pending += BASE*(secs-bs) + (BASE+boostRate())*bs;
+    const inc=BASE*(secs-bs) + (BASE+boostRate())*bs; pending+=inc; histSplit(t0,t1,inc);
     if(balance+pending>TOTAL_SUPPLY) pending=Math.max(0,TOTAL_SUPPLY-balance);
   }
   lastCalc=now;
-  if(boostLevel>0 && now>=boostEnd){ log(`🚀 Boost ended (was ${["2x","3x","4x"][boostLevel-1]})`); boostLevel=0; }
+  if(boostLevel>0 && now>=boostEnd){ { const bm=`${["2x","3x","4x"][boostLevel-1]} boost ended`; settings.mine!==false?notify("🚀",bm):log("🚀 "+bm); } boostLevel=0; }
 }
 const mState = (now=Date.now()) => !miningStart ? 'idle' : now<miningStart+DAY ? 'mining' : 'done';
 const fmt = ms => `${Math.floor(ms/36e5)}h ${Math.floor(ms%36e5/6e4)}m ${Math.floor(ms%6e4/1e3)}s`;
@@ -364,7 +387,8 @@ const getRank = b => RANKS.find(r=>b>=r[0])[1];
 
 function render(){
   const now=Date.now(), st=mState(now), total=balance+pending;
-  $('tokenBalance').innerText=total.toFixed(3); $('modalTokenBal').innerText=total.toFixed(3); $('wTotal').innerText=total.toFixed(3);
+  renderTap(); renderRef(); renderRings(); renderRefStats(); renderCombo(); if($('s-earn').classList.contains('on')) renderChallenges();
+  $('tokenBalance').innerText=total.toFixed(3); $('modalTokenBal').innerText=total.toFixed(3); $('sstLine').innerText='≈ '+(total/SST_RATE).toFixed(3)+' SST · 1,000 SUTRA = 1 SST'; $('sstWallet').innerText=(total/SST_RATE).toFixed(3)+' SST';
   $('sessionEarn').innerText=pending.toFixed(3)+" SUTRA"; $('walletPending').innerText=pending.toFixed(3); $('walletPending2').innerText=pending.toFixed(3);
   $('walletSessions').innerText=totalSessions; $('walletReferrals').innerText=referralCount; $('refCount2').innerText=referralCount;
   $('wTotal').innerText=(totalEarned+pending).toFixed(3);
@@ -379,10 +403,10 @@ function render(){
     else { ws.innerHTML='<span class="bad">🔴 Stopped</span>'; wl.innerText='—'; wb.innerText='Start mining from the Mine tab'; } }
   const btn=$('mineBtn'), hero=$('hero');
   hero.classList.toggle('on-air',st==='mining'); btn.classList.toggle('live',st!=='idle'); btn.classList.toggle('idle',st==='idle');
-  btn.disabled = st==='mining';
+  btn.disabled = st==='mining' && fuel<=0;
   if(st==='mining'){
     const left=miningStart+DAY-now;
-    $('mineIcon').innerText="⛏️"; $('mineText').innerText="Mining"; $('mineSubText').innerText=fmt(left)+" left";
+    $('mineIcon').innerText="⛏️"; $('mineText').innerText=fuel>0?`Tap · +${+tapGain().toFixed(1)}`:"No fuel"; $('mineSubText').innerText=fmt(left)+" left";
     $('ringFg').style.strokeDashoffset=283*(left/DAY); $('miningStatusBox').innerHTML='<span class="ok">🟢 Active</span>';
   } else if(st==='done'){
     $('mineIcon').innerText="🎁"; $('mineText').innerText="Claim"; $('mineSubText').innerText=pending.toFixed(2)+" SUTRA";
@@ -403,10 +427,9 @@ function render(){
   $('globalProgressFill').style.width=pct+'%';
   $('globalMeterText').innerText=(pct>0&&pct<0.01?'<0.01':pct.toFixed(pct<1?2:1))+'% mined so far';
 }
-function loop(){
-  settle(); render();
-  // local display updates every second; the write to Firebase happens far less often (see boot) to stay stable at high user counts
-}
+let _lt=0;
+let _hd=dayNum();
+function loop(){ settle(); checkMiningAlerts(); if(mState()==='mining' && !saverOn() && !document.hidden) minePulse(); if(_hd!==dayNum()){ _hd=dayNum(); saveNow(); } if(saverOn() && (++_lt%5)) return; render(); }
 
 async function dialAction(){ if(busy) return; busy=true; try{ await dialInner(); } finally{ busy=false; } }
 async function dialInner(){
@@ -426,7 +449,7 @@ async function dialInner(){
   try{ await playAd(); }catch(e){ return; }
   const ts=Date.now(); let r;
   try{ r=await window.tryStartSession(getUserId(), ts); }catch(e){ showToast("Could not start. Check your connection.","error"); return; }
-  if(!r.ok){   // a session already exists on the server (e.g. started from another tab/device) — adopt it, never start a second one
+  if(!r.ok){
     const d=r.data; miningStart=d.miningStart; pending=Math.max(pending,d.pending||0); lastCalc=d.lastCalc||miningStart; boostLevel=d.boostLevel||0; boostEnd=d.boostEnd||0;
     showToast("Mining is already running. Next session starts after 24 hours.","error"); render(); return;
   }
@@ -441,11 +464,205 @@ async function boosterInner(n){
   if(boostDay!==dayNum()){ boostDay=dayNum(); boostUses=0; }
   if(n===1 && boostUses>=BOOST_DAILY_LIMIT){ showToast(`You can use the booster only ${BOOST_DAILY_LIMIT} times a day. Try again tomorrow.`,'error'); return; }
   try{ await playAd(); }catch(e){ return; }
-  settle();                                    // close the previous rate first
+  settle();
   if(mState()!=='mining' || boostLevel!==n-1) return;
-  if(n===1){ boostEnd=Date.now()+BOOST_MS; boostUses++; }   // 3x and 4x share the 2x timer and don't count as a new use
-  boostLevel=n; log(`🚀 ${['2x','3x','4x'][n-1]} boost activated (+${BOOST_BONUS[n]} SUTRA / 4h)`); await saveNow(); render();
+  if(n===1){ boostEnd=Date.now()+BOOST_MS; boostUses++; }
+  if(n===1) chAdd('boost',1); boostLevel=n; log(`🚀 ${['2x','3x','4x'][n-1]} boost activated (+${BOOST_BONUS[n]} SUTRA / 4h)`); await saveNow(); render();
 }
+
+// ===== tap & earn: 500 fuel per day, 1 fuel per tap, 1x → 2x after a video =====
+function tapRoll(){ if(tapDay!==dayNum()){ tapDay=dayNum(); fuel=FUEL_MAX; tapMult=1; } }
+function renderTap(){
+  tapRoll(); if(!$('fuelTxt')) return;
+  $('fuelTxt').innerText=`${fuel} / ${FUEL_MAX}`; $('fuelBar').style.width=(fuel/FUEL_MAX*100)+'%';
+  $('mineBtn').classList.toggle('x2',tapMult===2&&mState()==='mining');
+  const t=$('tapBoostBtn'); t.disabled=tapMult===2||fuel<=0; t.innerText=tapMult===2?'⚡ 2x ON':'⚡ Fuel 2x';
+}
+let tapSaveT;
+function doTap(e){ if(mState()!=='mining') return; { const s=$('mineIcon'); s.classList.remove('swing'); void s.offsetWidth; s.classList.add('swing'); }
+  if(!loaded||!getUserId()) return; tapRoll();
+  if(fuel<=0){ showToast('Fuel is empty. It refills tomorrow.','error'); return; }
+  const nowT=Date.now(); combo=(nowT-lastTapT<700)?combo+1:1; lastTapT=nowT; const cm=comboMult(), gain=tapGain();
+  fuel--; balance+=gain; totalEarned+=gain; histAdd(dayNum(),'o',gain); chSet('combo',combo); chAdd('taps',1);
+  const p=document.createElement('div'); p.className='pop'+(tapMult===2||cm>1?' x2':''); p.textContent='+'+gain+(cm>1&&tapMult===1?' ×'+cm:'');
+  p.style.left=(e.clientX-10)+'px'; p.style.top=(e.clientY-30)+'px'; document.body.appendChild(p); setTimeout(()=>p.remove(),750);
+  sfx('tap'); haptic('tick');
+  render(); clearTimeout(tapSaveT); tapSaveT=setTimeout(()=>saveNow(),2500);
+}
+async function tapBoost(){
+  if(busy) return; busy=true;
+  try{
+    if(!loaded||!getUserId()) return; tapRoll(); if(tapMult===2||fuel<=0) return;
+    try{ await playAd(); }catch(e){ return; }
+    tapMult=2; await saveNow(); render(); showSuccess('2x activated','Each tap now gives 2 SUTRA until your fuel runs out');
+  } finally{ busy=false; }
+}
+$('mineBtn').addEventListener('pointerdown',doTap);
+
+const SST_RATE=1000;   // 1,000 SUTRA = 1 SST coin
+const streakLive=()=>lastDailyDay>=dayNum()-1?dailyStreak:0;
+function setRing(id,pct,txt){ const e=$('rg'+id); if(!e) return; e.style.strokeDasharray=`${Math.max(0,Math.min(100,pct))} 100`; $('rg'+id+'T').innerText=txt; }
+function renderRings(){ setRing('Fuel',fuel/FUEL_MAX*100,fuel); setRing('Streak',streakLive()/30*100,streakLive()+'d'); setRing('Ref',refLevel()/REF_LEVELS*100,refLevel()+'/'+REF_LEVELS); }
+function renderRefStats(){
+  if(!$('rsTotal')) return; const L=refLevelPaid, tot=Math.max(refTotal,referralCount);
+  $('rsTotal').innerText=tot; $('rsQual').innerText=referralCount; $('rsWait').innerText=refWaiting;
+  $('rsConv').innerText=(tot?Math.round(referralCount/tot*100):0)+'%'; $('rsEarn').innerText=(300*L*(L+1)/2).toLocaleString()+' SUTRA';
+}
+function notify(icon,msg,big){
+  notifs.unshift({i:icon,m:msg,t:Date.now()}); notifs.length=Math.min(notifs.length,30); renderNotifs(); log(icon+' '+msg);
+  if(!settings.notify) return;
+  showToast(icon+' '+msg); sfx(big?'level':'notify'); haptic('success');
+}
+function renderNotifs(){ const e=$('notifList'); if(e) e.innerHTML=notifs.map(n=>`<div class="item ntf"><b>${esc(n.i)} ${esc(n.m)}</b>${esc(new Date(n.t).toLocaleString())}</div>`).join("")||'<div class="item">No notifications yet.</div>'; }
+function applySettingsUI(){ $('setSound').checked=settings.sound; $('setVib').checked=settings.vibrate; $('setNotif').checked=settings.notify; $('setStr').value=settings.strength; $('setMine').checked=settings.mine!==false; $('setSaver').value=settings.saver||'auto'; }
+function saveSettings(){ settings.sound=$('setSound').checked; settings.vibrate=$('setVib').checked; settings.notify=$('setNotif').checked; settings.strength=$('setStr').value; settings.mine=$('setMine').checked; settings.saver=$('setSaver').value; applySaver(); sfx('click'); haptic('tick'); saveNow(); }
+// ===== battery saver: auto-enables below 20% battery (or force on/off in Settings) =====
+let batteryLow=false;
+const saverOn=()=>settings.saver==='on'||(settings.saver!=='off'&&batteryLow);
+function applySaver(){ document.body.classList.toggle('saver',saverOn()); }
+try{ navigator.getBattery?.().then(b=>{ const u=()=>{ batteryLow=b.level<=.2&&!b.charging; applySaver(); }; u(); b.addEventListener('levelchange',u); b.addEventListener('chargingchange',u); }); }catch(e){}
+
+// ===== tap combo: tap faster than 0.7s apart to build a combo =====
+const comboMult=()=>combo>=40?2:combo>=15?1.5:1;
+const tapGain=()=>Math.min(2,tapMult*comboMult());   // total tap multiplier never goes above 2x
+function renderCombo(){
+  const e=$('comboBox'); if(!e) return; if(combo>0&&Date.now()-lastTapT>700) combo=0;
+  const m=tapGain(); e.className='combo'+(m>=2?' hot3':m>1?' hot1':'');
+  e.innerText=tapMult===2?'⚡ Fuel 2x active · maximum 2x':combo>1?`🔥 Combo ${combo} · ×${comboMult()}`+(combo>=40?' · MAX 2x':` · next ×${combo>=15?2:1.5} at ${combo>=15?40:15}`):'Tap fast for a combo: 15 → ×1.5 · 40 → ×2 (max)';
+}
+
+// ===== referral badges (animated unlock), milestones, progress chart =====
+const BADGES=[{id:'b1',i:'🥉',n:'Starter',need:1},{id:'b5',i:'🥈',n:'Connector',need:5},{id:'b15',i:'🥇',n:'Influencer',need:15},{id:'b30',i:'💎',n:'Ambassador',need:30},{id:'b60',i:'👑',n:'Champion',need:60},{id:'b100',i:'🚀',n:'Legend',need:100}];
+function renderBadges(newId){
+  const e=$('badgeGrid'); if(!e) return;
+  e.innerHTML=BADGES.map(b=>{ const on=referralCount>=b.need; return `<div class="bdg ${on?'on':''} ${b.id===newId?'new':''}"><span>${b.i}</span><b>${b.n}</b><small>${on?'Unlocked':b.need+' friends'}</small></div>`; }).join("");
+}
+function badgePopup(b){
+  const d=document.createElement('div'); d.className='bpop'; d.innerHTML=`<div class="bbox"><div class="bico">${b.i}</div><b>Badge unlocked!</b><span>${esc(b.n)}</span></div>`;
+  d.onclick=()=>d.remove(); document.body.appendChild(d); setTimeout(()=>d.remove(),3200);
+}
+function checkBadges(){
+  const earned=BADGES.filter(b=>referralCount>=b.need).map(b=>b.id);
+  if(!Array.isArray(badgesSeen)){ badgesSeen=earned; renderBadges(); return true; }   // first run after update: unlock silently
+  const fresh=earned.filter(id=>!badgesSeen.includes(id)); if(!fresh.length){ renderBadges(); return false; }
+  badgesSeen=badgesSeen.concat(fresh); const b=BADGES.find(x=>x.id===fresh[fresh.length-1]);
+  renderBadges(b.id); badgePopup(b); notify(b.i,`Badge unlocked: ${b.n}`,true); return true;
+}
+const MILESTONES=[{need:10,r:500},{need:25,r:1500},{need:50,r:3000},{need:100,r:3000}];
+function payMilestones(){
+  let p=false;
+  MILESTONES.forEach(m=>{ if(referralCount>=m.need && !milestonePaid.includes(m.need)){
+    milestonePaid.push(m.need); balance+=m.r; addClaim('milestone',m.r); notify('🎯',`Milestone reached: ${m.need} friends! +${m.r.toLocaleString()} SUTRA`,true); p=true; } });
+  return p;
+}
+function renderMilestones(){
+  const e=$('msList'); if(!e) return;
+  e.innerHTML=MILESTONES.map(m=>{ const done=milestonePaid.includes(m.need), pct=Math.min(100,referralCount/m.need*100);
+    return `<div class="ms"><div class="row" style="padding:2px 0"><span>${done?'✅':'🎯'} ${m.need} friends</span><b>+${m.r.toLocaleString()} SUTRA</b></div><div class="bar"><i style="width:${pct}%"></i></div><small>${done?'Completed':`${Math.min(referralCount,m.need)} / ${m.need} · ${m.need-referralCount} to go`}</small></div>`; }).join("");
+}
+function recordRefHist(){
+  const t=dayNum(); if(!Object.keys(refHist).length) refHist[t-1]=referralCount;   // baseline so history starts flat
+  refHist[t]=referralCount; const ks=Object.keys(refHist).map(Number).sort((a,b)=>a-b); while(ks.length>30) delete refHist[ks.shift()];
+}
+function renderRefChart(){
+  const e=$('refChart'); if(!e) return; const t=dayNum(), ks=Object.keys(refHist).map(Number).sort((a,b)=>a-b);
+  const cum=d=>{ let v=0; for(const k of ks){ if(k<=d) v=refHist[k]; } return v; };
+  const days=[]; for(let i=13;i>=0;i--) days.push(t-i);
+  const vals=days.map(d=>Math.max(0,cum(d)-cum(d-1))), mx=Math.max(1,...vals), sum=vals.reduce((a,b)=>a+b,0);
+  const bars=vals.map((v,i)=>{ const h=Math.round(v/mx*52), x=i*20+4;
+    return `<rect x="${x}" y="${64-h}" width="12" height="${v?h:2}" rx="3" fill="${v?'url(#cg)':'#3a2a1e'}"/>`+(v?`<text x="${x+6}" y="${60-h}" text-anchor="middle" font-size="8" fill="#fbf3ea">${v}</text>`:'')+`<text x="${x+6}" y="78" text-anchor="middle" font-size="7" fill="#b8a690">${new Date(days[i]*864e5).getUTCDate()}</text>`; }).join("");
+  e.innerHTML=`<svg viewBox="0 0 284 84" width="100%"><defs><linearGradient id="cg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#ffb020"/><stop offset="1" stop-color="#ff7a1a"/></linearGradient></defs>${bars}</svg><div class="meterCap">+${sum} qualified friend${sum===1?'':'s'} in 14 days · ${referralCount} total</div>`;
+}
+
+// ===== daily check-in (7-day cycle, one tap, no video) =====
+const CHECKIN=[20,30,40,50,70,100,200];
+function renderCheckin(){
+  const e=$('ciBox'); if(!e) return; const t=dayNum(), done=ciDay===t, live=ciDay>=t-1?ciStreak:0, cyc=done?((ciStreak-1)%7)+1:(live%7);
+  e.innerHTML=`<div class="gift" style="grid-template-columns:repeat(7,1fr)">`+CHECKIN.map((r,i)=>`<div class="gd ${i<cyc?'done':''} ${!done&&i===cyc?'now':''}">D${i+1}<b>${r}</b></div>`).join("")+`</div><button class="btn" onclick="claimCheckin()" ${done?'disabled':''}>${done?'Checked in today ✓':`Check in · +${CHECKIN[cyc]} SUTRA`}</button>`;
+}
+function claimCheckin(){
+  const t=dayNum(); if(!loaded||!getUserId()||ciDay===t) return;
+  ciStreak=(ciDay===t-1)?ciStreak+1:1; ciDay=t; const r=CHECKIN[(ciStreak-1)%7];
+  balance+=r; addClaim('checkin',r); chAdd('checkin',1); log(`📅 Check-in day ${ciStreak}: +${r} SUTRA`);
+  renderCheckin(); renderChallenges(); render(); saveNow(); showSuccess('Checked in!',`+${r} SUTRA · ${ciStreak}-day streak`);
+}
+
+// ===== daily challenges: 3 per day, rotating =====
+const CH_POOL=[{k:'taps',t:'Tap 100 times',g:100,r:150},{k:'combo',t:'Reach a 15-tap combo',g:15,r:100},{k:'checkin',t:'Do the daily check-in',g:1,r:50},{k:'boost',t:'Start a booster',g:1,r:150},{k:'gift',t:'Claim the daily gift',g:1,r:100},{k:'taps',t:'Tap 300 times',g:300,r:300}];
+const chToday=()=>{ const s=dayNum()%6; return [s,(s+2)%6,(s+4)%6]; };
+function chRoll(){ if(chDay!==dayNum()){ chDay=dayNum(); chProg={}; chDone=[]; } }
+function chAdd(k,n){ if(!loaded) return; chRoll(); chProg[k]=(chProg[k]||0)+n; }
+function chSet(k,v){ if(!loaded) return; chRoll(); chProg[k]=Math.max(chProg[k]||0,v); }
+function renderChallenges(){
+  const e=$('chList'); if(!e) return; chRoll();
+  const h=chToday().map(i=>{ const c=CH_POOL[i], p=Math.min(c.g,chProg[c.k]||0), done=chDone.includes(i), ready=p>=c.g&&!done;
+    return `<div class="ms"><div class="row" style="padding:2px 0"><span>${done?'✅':'🎯'} ${c.t}</span><b>+${c.r}</b></div><div class="bar"><i style="width:${p/c.g*100}%"></i></div><div class="vrow" style="border:0;padding:4px 0"><small>${p} / ${c.g}</small>${done?'<em class="ok">Claimed</em>':ready?`<button class="vbtn" onclick="claimChallenge(${i})">Claim</button>`:''}</div></div>`; }).join("");
+  if(e.dataset.h!==h){ e.dataset.h=h; e.innerHTML=h; }
+}
+function claimChallenge(i){
+  chRoll(); const c=CH_POOL[i]; if(!c||!chToday().includes(i)||chDone.includes(i)||(chProg[c.k]||0)<c.g) return;
+  chDone.push(i); balance+=c.r; addClaim('challenge',c.r); log(`🎯 Challenge done: ${c.t} (+${c.r})`);
+  renderChallenges(); render(); saveNow(); showSuccess('Challenge complete',`+${c.r} SUTRA`);
+}
+
+// ===== day-by-day history: saved automatically, every day =====
+const tzMs=()=>new Date().getTimezoneOffset()*6e4, dayStartMs=d=>d*864e5+tzMs();
+function histAdd(d,k,v){
+  if(!(v>0)) return; const e=dayHist[d]||(dayHist[d]={m:0,o:0}); e[k]+=v; if(histFirst<0) histFirst=d;
+  const ks=Object.keys(dayHist).map(Number).sort((a,b)=>a-b); while(ks.length>60) delete dayHist[ks.shift()];
+}
+function histSplit(t0,t1,inc){      // mining earned across midnight is split between the two days
+  const tot=t1-t0; if(tot<=0) return;
+  for(let d=Math.floor((t0-tzMs())/864e5), end=Math.floor((t1-tzMs())/864e5); d<=end; d++){
+    const ov=Math.min(t1,dayStartMs(d+1))-Math.max(t0,dayStartMs(d)); if(ov>0) histAdd(d,'m',inc*ov/tot); }
+}
+function renderDayHist(){
+  const el=$('dayHist'); if(!el) return; const ks=Object.keys(dayHist).map(Number).sort((a,b)=>b-a), t=dayNum();
+  if(!ks.length){ el.innerHTML='<div class="item">Your daily mining history will appear here.</div>'; return; }
+  const f=n=>n.toLocaleString(undefined,{minimumFractionDigits:3,maximumFractionDigits:3});
+  el.innerHTML=ks.map(d=>{ const e=dayHist[d], dt=new Date(dayStartMs(d)).toLocaleDateString(undefined,{day:'numeric',month:'short',year:'numeric'});
+    return `<div class="item"><div class="row" style="padding:0"><b style="font-size:13px">Day ${d-histFirst+1}${d===t?' · Today (live)':''}</b><b class="ok" style="font-size:14px">+${f(e.m+e.o)}</b></div>${esc(dt)} · ⛏️ ${f(e.m)} mining · 🎁 ${f(e.o)} rewards &amp; taps</div>`; }).join("");
+}
+function openHistory(){ renderDayHist(); renderActivity(); openSheet('actModal'); }
+
+// ===== mining animation + session alerts =====
+function minePulse(){      // shows the real per-second mining rate rising from the dial
+  const h=$('hero'); if(!h) return; const s=document.createElement('span'); s.className='float';
+  s.textContent='+'+(BASE+(boostLevel>0&&Date.now()<boostEnd?boostRate():0)).toFixed(3);
+  s.style.left=(28+Math.random()*44)+'%'; s.style.top=(30+Math.random()*20)+'%'; h.appendChild(s); setTimeout(()=>s.remove(),1000);
+}
+function checkMiningAlerts(){
+  if(!loaded||settings.mine===false||!miningStart) return;
+  const left=miningStart+DAY-Date.now();
+  if(alertMark.s!==miningStart) alertMark={s:miningStart,soon:0,done:0};
+  if(left<=0 && !alertMark.done){ alertMark.done=1; notify('✅','Your 24-hour mining session is complete. Tap Claim to collect your SUTRA.',true); saveNow(); }
+  else if(left>0 && left<=36e5 && !alertMark.soon){ alertMark.soon=1; notify('⏳','Your mining session ends in less than 1 hour.'); }
+}
+
+// ===== weekly mining report (last 7 days vs the 7 before) =====
+function openWeekly(){ renderWeekly(); openSheet('wkModal'); }
+function renderWeekly(){
+  const t=dayNum(), f=n=>Math.round(n).toLocaleString(), g=d=>{ const e=dayHist[d]; return e?e.m+e.o:0; };
+  const days=[]; for(let i=6;i>=0;i--) days.push(t-i);
+  const vals=days.map(g), tot=vals.reduce((a,b)=>a+b,0), mining=days.reduce((a,d)=>a+(dayHist[d]?dayHist[d].m:0),0);
+  let prev=0; for(let i=7;i<=13;i++) prev+=g(t-i);
+  const best=Math.max(...vals), bi=vals.indexOf(best), active=vals.filter(v=>v>0).length, mx=Math.max(1,...vals), chg=prev>0?Math.round((tot-prev)/prev*100):null;
+  const wd=(d,o)=>new Date(dayStartMs(d)).toLocaleDateString(undefined,{weekday:o});
+  const bars=vals.map((v,i)=>{ const h=Math.round(v/mx*66), x=i*40+8;
+    return `<rect x="${x}" y="${80-h}" width="24" height="${v?h:2}" rx="5" fill="${v?'url(#wg)':'#3a2a1e'}"/>`+(v?`<text x="${x+12}" y="${76-h}" text-anchor="middle" font-size="9" fill="#fbf3ea">${f(v)}</text>`:'')+`<text x="${x+12}" y="94" text-anchor="middle" font-size="9" fill="#b8a690">${wd(days[i],'short')}</text>`; }).join("");
+  $('wkBody').innerHTML=`<svg viewBox="0 0 290 100" width="100%"><defs><linearGradient id="wg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#2ee6a6"/><stop offset="1" stop-color="#ffb020"/></linearGradient></defs>${bars}</svg>`
+   +`<div class="row"><span>Total this week</span><b class="ok">+${f(tot)} SUTRA</b></div><div class="row"><span>⛏️ From mining</span><b>${f(mining)}</b></div><div class="row"><span>🎁 Rewards &amp; taps</span><b>${f(tot-mining)}</b></div>`
+   +`<div class="row"><span>Daily average</span><b>${f(tot/7)}</b></div><div class="row"><span>Active days</span><b>${active} / 7</b></div>`
+   +`<div class="row"><span>Best day</span><b>${best>0?wd(days[bi],'long')+' · '+f(best):'—'}</b></div>`
+   +`<div class="row"><span>vs previous 7 days</span><b class="${chg===null?'':chg>=0?'ok':'bad'}">${chg===null?'No earlier data yet':(chg>=0?'+':'')+chg+'%'}</b></div>`;
+}
+
+async function loadRefBoard(){
+  try{ const top=(await window.lbTopRef()).filter(x=>(x.refs||0)>0);
+    $('refBoard').innerHTML=top.map((x,i)=>`<div class="lb"><div>${['🥇','🥈','🥉'][i]||'#'+(i+1)} ${esc(x.name||"Miner")}<small>${esc(x.rank||"")}</small></div><b class="s">${x.refs} 👥</b></div>`).join("")||"No referrals yet — be the first!";
+  }catch(e){ $('refBoard').innerText="Leaderboard unavailable"; }
+}
+document.addEventListener('click',e=>{ if(e.target.closest('.btn,.tab,.bst,.vbtn,.core')){ haptic('tick'); sfx('click'); } });
 
 // ===== video ads =====
 function playAd(custom){
@@ -464,13 +681,13 @@ function playAd(custom){
   });
 }
 
-// ===== rewards / referral =====
+// ===== rewards: daily gift, social claims =====
 function nextGiftDay(){ const t=dayNum(); if(lastDailyDay===t) return 0; let n=(lastDailyDay===t-1)?dailyStreak+1:1; return n>30?1:n; }
-function renderGift(){
+function renderGift(){ renderCheckin(); renderChallenges();
   const t=dayNum(), live=lastDailyDay>=t-1?dailyStreak:0, nx=nextGiftDay(); let h="";
-  for(let n=1;n<=30;n++) h+=`<div class="gd ${n<=live&&!(nx===1&&live===30)?'done':''} ${n===nx?'now':''}">Day ${n}<b>${n*100}</b></div>`;
+  for(let n=1;n<=30;n++) h+=`<div class="gd ${n<=live&&!(nx===1&&live===30)?'done':''} ${n===nx?'now':''}">Day ${n}<b>${n*50}</b></div>`;
   $('giftGrid').innerHTML=h; const b=$('giftBtn');
-  b.disabled=!nx; b.innerText = nx ? `Watch video & claim ${nx*100} SUTRA` : "Claimed today. Come back tomorrow";
+  b.disabled=!nx; b.innerText = nx ? `Watch video & claim ${nx*50} SUTRA` : "Claimed today. Come back tomorrow";
 }
 async function claimDailyReward(){ if(busy) return; busy=true; try{ await giftInner(); } finally{ busy=false; } }
 async function giftInner(){
@@ -481,38 +698,43 @@ async function giftInner(){
   try{ await playAd(); }catch(e){ return; }
   if(!nextGiftDay()) return;
   if(streakBroken) log(`⏳ Daily gift streak expired after Day ${dailyStreak} — restarting from Day 1`);
-  balance+=day*100; dailyStreak=day; lastDailyDay=dayNum(); log(`🎁 Day ${day} gift claimed (${day*100} SUTRA)`); addClaim('gift',day*100);
-  await saveNow(); renderGift(); render(); showSuccess(`Day ${day} gift claimed: ${(day*100).toLocaleString()} SUTRA`);
+  balance+=day*50; dailyStreak=day; lastDailyDay=dayNum(); log(`🎁 Day ${day} gift claimed (${day*50} SUTRA)`); addClaim('gift',day*50); chAdd('gift',1);
+  await saveNow(); renderGift(); render(); showSuccess(`Day ${day} gift claimed: ${(day*50).toLocaleString()} SUTRA`);
 }
-function renderVideos(){
-  const today = vidDay===dayNum(), doneList = today ? vidDone : [];
-  $('vidList').innerHTML = VIDEO_CLAIMS.map((v,i)=>{
-    const n=i+1;
-    if(!v.url) return `<div class="vrow"><span>🎬 Video claim ${n}</span><em>Coming soon</em></div>`;
-    if(doneList.includes(i)) return `<div class="vrow"><span>🎬 Video claim ${n}</span><em class="ok">✓ Claimed today</em></div>`;
-    return `<div class="vrow"><span>🎬 Video claim ${n}</span><button class="vbtn" onclick="claimVideo(${i})">Watch & claim +${v.reward}</button></div>`;
+function renderSocials(){
+  const now=Date.now(), h=SOCIALS.map(s=>{
+    const head=`<div class="vrow"><span class="sl"><span class="sic">${IC[s.id]}</span>${s.n}</span>`, o=socialOpen[s.id];
+    if(socialDone.includes(s.id)) return head+`<em class="ok">✓ Claimed</em></div>`;
+    if(!s.url) return head+`<span class="soonpill">Coming soon</span></div>`;
+    if(!o) return head+`<button class="vbtn" onclick="openSocial('${s.id}')">${s.act}</button></div>`;
+    if(now-o<SOCIAL_WAIT) return head+`<button class="vbtn" disabled>Checking…</button></div>`;
+    return head+`<button class="vbtn" onclick="claimSocial('${s.id}')">Claim +${SOCIAL_REWARD}</button></div>`;
   }).join("");
+  ['vidList','socialList'].forEach(i=>{ if($(i)) $(i).innerHTML=h; });
 }
-async function claimVideo(i){
+function openSocial(id){
+  const s=SOCIALS.find(x=>x.id===id); if(!s||!s.url||socialDone.includes(id)) return;
+  if(tg?.openTelegramLink && /t\.me/.test(s.url)) tg.openTelegramLink(s.url); else window.open(s.url,'_blank');
+  socialOpen[id]=Date.now(); renderSocials(); setTimeout(renderSocials,SOCIAL_WAIT+150);
+}
+async function claimSocial(id){
   if(busy) return; busy=true;
   try{
-    if(!loaded && getUserId() && !window.linkError){ showToast('Loading… please wait'); return; }
-    if(!loaded){ showToast('Could not connect — see Profile for details','error'); return; }
-    const v=VIDEO_CLAIMS[i]; if(!v||!v.url) return;
-    if(vidDay!==dayNum()){ vidDay=dayNum(); vidDone=[]; }
-    if(vidDone.includes(i)){ showToast("Already claimed today. Come back tomorrow."); return; }
-    try{ await playAd({secs:v.seconds, url:v.url}); }catch(e){ return; }
-    if(vidDay!==dayNum()){ vidDay=dayNum(); vidDone=[]; }
-    if(vidDone.includes(i)) return;
-    balance+=v.reward; vidDone.push(i); log(`🎬 Video ${i+1} reward claimed (${v.reward} SUTRA)`); addClaim('video',v.reward);
-    await saveNow(); renderVideos(); render(); showSuccess(`Video reward: ${v.reward.toLocaleString()} SUTRA`);
+    if(!loaded){ showToast('Loading… please wait'); return; }
+    const s=SOCIALS.find(x=>x.id===id); if(!s||!s.url||socialDone.includes(id)) return;
+    if(!socialOpen[id]||Date.now()-socialOpen[id]<SOCIAL_WAIT){ showToast(`Please ${s.act.toLowerCase()} first, then claim.`,'error'); return; }
+    try{ await playAd(); }catch(e){ return; }
+    if(socialDone.includes(id)) return;
+    balance+=SOCIAL_REWARD; socialDone.push(id); log(`🔗 ${s.n} reward (${SOCIAL_REWARD} SUTRA)`); addClaim('social',SOCIAL_REWARD);
+    await saveNow(); renderSocials(); render(); showSuccess(`${SOCIAL_REWARD} SUTRA added`);
   } finally{ busy=false; }
 }
+
 async function pushLeaderboardRow(){
   if(!getUserId()) return;
   const total=balance+pending;
   try{ await window.saveLeaderboardRow(getUserId(), {
-    name: (profile.name||"Miner").substring(0,3)+"***", balance: total, rank: getRank(total),
+    name: (profile.name||"Miner").substring(0,3)+"***", balance: total, refs: referralCount, rank: getRank(total),
     online: !document.hidden, lastHeartbeat: Date.now()
   }); }catch(e){}
 }
@@ -531,7 +753,7 @@ async function loadAnnouncements(){
   }catch(e){ $('announcementList').innerText="Announcements unavailable"; }
 }
 
-const PLAY_STORE_LINK = "";   // ❤️ PUT YOUR PLAY STORE LINK HERE when the app is live
+const PLAY_STORE_LINK = "";
 async function copyText(t){
   try{ await navigator.clipboard.writeText(t); showToast("Copied to clipboard"); return; }catch(e){}
   $('shareTextBox').value=t; openSheet('shareModal');
@@ -547,58 +769,70 @@ function setupShare(){
   };
   window.copyRef=()=>copyText(text);
 }
+
+// ===== referral levels: 20 levels, every 5 friends = next level, reward 300 × level =====
+const refLevel = () => Math.min(REF_LEVELS, Math.floor(referralCount/5));
+function payRefLevels(){
+  let paid=false;
+  while(refLevelPaid<refLevel()){
+    const n=++refLevelPaid; balance+=refReward(n); addClaim('referral',refReward(n));
+    notify('🏆',`Referral Level ${n} reached! +${refReward(n)} SUTRA`,true); paid=true;
+  }
+  return paid;
+}
+function renderRef(){
+  if(!$('refLvl')) return; const l=refLevel(), n=Math.min(l+1,REF_LEVELS);
+  $('refLvl').innerText=`${l} / ${REF_LEVELS}`; $('refLvlBar').style.width=(l>=REF_LEVELS?100:(referralCount%5)*20)+'%';
+  $('refLvlTxt').innerText=l>=REF_LEVELS?'Max level reached 🎉':`${referralCount} friends · ${refNeed(n)-referralCount} more for Level ${n} (+${refReward(n)} SUTRA)`;
+}
 async function checkReferrals(){
-  // reads "referrals" docs where referrerId==me (read-only, no field is sensitive), then
-  // claims each qualified friend exactly once via referralClaims/{friendId} — a document
-  // this account owns and writes itself, so no cross-user write is ever needed.
   if(!loaded) return;
   try{
-    const list=await window.refListFor(getUserId()); let wait=0, changed=false;
+    const list=await window.refListFor(getUserId()); let wait=0, changed=false; refTotal=list.length;
+    const nj=list.length-refSeen; if(nj>0){ notify('🎉',`${nj} new friend${nj>1?'s':''} joined with your link`); refSeen=list.length; changed=true; }
     for(const r of list){
       if(!r.qualified) { wait++; continue; }
       if(await window.refClaimed(r.id)) continue;
       try{
         await window.refClaim(r.id, getUserId());
-        balance+=500; referralCount++; changed=true; log("🤝 500 SUTRA referral reward: your friend completed 2 sessions"); addClaim('referral',500);
-      }catch(e){}   // someone/something already claimed this friend — skip silently
+        referralCount++; changed=true; notify('🤝',`A friend completed 2 sessions · ${referralCount} qualified friends`);
+      }catch(e){}
     }
-    refWaiting=wait; if(changed) await saveNow(); render();
+    refWaiting=wait; if(payRefLevels()) changed=true; if(payMilestones()) changed=true; if(checkBadges()) changed=true; recordRefHist(); renderMilestones(); renderRefChart(); if(changed) await saveNow(); render();
   }catch(e){}
 }
 function openSupport(){ tg?.openTelegramLink ? tg.openTelegramLink(supportLink) : window.open(supportLink,"_blank"); }
 
-// ===== boot (called by the Firebase module once auth state is known) =====
+// ===== boot =====
 function bootFail(detail){
   const sc=$('secCheck'); if(sc) sc.remove();
   const b=$('mineBtn'); if(!b) return;
   $('mineIcon').innerText="⚠️"; $('mineText').innerText="Not connected"; $('mineSubText').innerText="Tap to retry";
   b.disabled=false; b.onclick=()=>location.reload();
-  const d=String(detail||"unknown"), H=[
-    [/operation-not-allowed|admin-restricted/,"Firebase Console → Authentication → Sign-in method → turn ON \"Anonymous\"."],
-    [/permission-denied|Missing or insufficient/,"Firebase Console → Firestore Database → Rules → paste firestore.rules → Publish."],
-    [/unauthorized-domain/,"Firebase Console → Authentication → Settings → Authorized domains → add your Render domain."],
-    [/offline|unavailable|network/,"Network problem or Firestore not created. Check internet, and that a Firestore Database exists."]];
-  const hint=(H.find(h=>h[0].test(d))||[0,"Check Firebase setup: Anonymous sign-in ON, Firestore rules published."])[1];
-  const c=$('connErr'); if(c){ c.style.display='block'; c.innerHTML=`<h3 style="color:var(--lotus)">⚠️ Could not connect</h3><p><b>Error:</b> ${esc(d)}</p><p>${esc(hint)}</p>`; }
+  const d=String(detail||"unknown");
+  console.error('Startup error:',d); const hint="Please check your internet connection and try again. If the problem continues, contact support.";
+  const c=$('connErr'); if(c){ c.style.display='block'; c.innerHTML=`<h3 style="color:var(--lotus)">⚠️ Could not connect</h3><p>${esc(hint)}</p>`; }
 }
 window.bootApp = async function(au){
   authUser=au; const uid=getUserId();
   if(window.linkError){
     $('accountCard').innerHTML = `<h3 style="color:var(--lotus)">⚠️ Could not connect</h3>
       <p>${esc(window.linkError)}</p>
-      <p>If this is your first time testing: open Firebase Console → Authentication → Sign-in method → enable <b>Anonymous</b>, and make sure the Firestore & Storage rules have been published.</p>
+      <p>Please check your internet connection and try again.</p>
       <button class="btn alt" onclick="location.reload()">Retry</button>`;
     showToast('Could not connect — see Profile for details','error'); bootFail(window.linkError); return;
   }
-  if(!uid){ showAuth('login',false); return; }        // Play Store / browser: must log in
+  if(!uid){ showAuth('login',false); return; }
   let d=null;
   try{ const pre = window.__pre ? await window.__pre : { ok:false }; d = pre.ok ? pre.d : await window.loadUserData(uid); }catch(e){ showToast("Could not load your data. Check your connection and reopen the app.","error"); bootFail("Data load failed: "+(e.code||e.message)); return; }
   d=d||{}; profile=d;
   balance=Math.max(0,d.balance||0); pending=Math.max(0,d.pending||0); miningStart=d.miningStart||0;
   boostLevel=d.boostLevel||0; boostEnd=d.boostEnd||0; lastCalc=d.lastCalc||Date.now();
-  totalSessions=d.totalSessions||0; referralCount=d.referralCount||0; adIndex=d.adIndex||0; activity=d.activity||[]; claims=Array.isArray(d.claims)?d.claims:[]; totalEarned=(typeof d.totalEarned==='number')?d.totalEarned:balance; vidDay=(d.vidDay ?? -1); vidDone=Array.isArray(d.vidDone)?d.vidDone:[];
+  totalSessions=d.totalSessions||0; referralCount=d.referralCount||0; adIndex=d.adIndex||0; activity=d.activity||[]; claims=Array.isArray(d.claims)?d.claims:[]; totalEarned=(typeof d.totalEarned==='number')?d.totalEarned:balance;
   referredBy=d.referredBy||""; claimedSessions=d.claimedSessions||0; dailyStreak=d.dailyStreak||0; lastDailyDay=(d.lastDailyDay ?? -1);
   boostDay=(d.boostDay ?? -1); boostUses=d.boostUses||0;
+  socialDone=Array.isArray(d.socialDone)?d.socialDone:[]; tapDay=(d.tapDay ?? -1); fuel=(d.fuel ?? FUEL_MAX); tapMult=d.tapMult||1; refLevelPaid=d.refLevelPaid||0; tapRoll();
+  refSeen=d.refSeen||0; badgesSeen=Array.isArray(d.badgesSeen)?d.badgesSeen:null; milestonePaid=Array.isArray(d.milestonePaid)?d.milestonePaid:[]; refHist=(d.refHist&&typeof d.refHist==='object')?d.refHist:{}; ciDay=d.ciDay ?? -1; ciStreak=d.ciStreak||0; chDay=d.chDay ?? -1; chProg=d.chProg||{}; chDone=Array.isArray(d.chDone)?d.chDone:[]; dayHist=(d.dayHist&&typeof d.dayHist==='object')?d.dayHist:{}; histFirst=d.histFirst ?? -1; alertMark=(d.alertMark&&typeof d.alertMark==='object')?d.alertMark:{s:0,soon:0,done:0}; notifs=Array.isArray(d.notifs)?d.notifs:[]; Object.assign(settings,d.settings||{}); settings.saver=settings.saver||'auto'; applySaver(); applySettingsUI(); renderNotifs(); recordRefHist(); checkBadges(); renderMilestones(); renderRefChart(); renderCheckin(); renderChallenges();
   if(tgUser && !d.name){ profile.name=(tgUser.first_name+" "+(tgUser.last_name||"")).trim(); profile.firstName=tgUser.first_name; profile.lastName=tgUser.last_name||""; }
   loaded=true; window.__ready=true; const sc=$('secCheck'); if(sc) sc.remove();
   const firstTime = !d.seenWelcome;
@@ -609,23 +843,20 @@ window.bootApp = async function(au){
       referredBy=refId;
       try{ await window.saveUserData(uid,{referredBy:refId}); await window.refCreate(uid,refId); }catch(e){}
     }
-    setTimeout(()=>switchTab('friends'),50);   // came in via a referral link — jump straight to Friends
   }
-  settle();                                          // credit earnings made while the app was closed
+  settle();
   saveNow(firstTime?{seenWelcome:true}:{});
   renderProfile(); renderActivity(); renderClaims(); setupShare(); render();
   if(firstTime) openSheet('welcomeModal');
-  loadAnnouncements(); loadLeaderboard();
-  renderGift(); renderVideos(); checkReferrals();
-  setInterval(loop,1000); setInterval(loadLeaderboard,60000); setInterval(checkReferrals,60000);
-  // single periodic write to Firebase (balance/session/online state), spread out so a huge number of
-  // concurrent users never floods Firestore with per-second writes
+  loadAnnouncements(); loadLeaderboard(); loadRefBoard();
+  renderGift(); renderSocials(); checkReferrals();
+  setInterval(loop,1000); setInterval(loadLeaderboard,60000); setInterval(loadRefBoard,60000); setInterval(checkReferrals,60000);
   setInterval(()=>{ if(!document.hidden){ settle(); saveNow({online:true,lastHeartbeat:Date.now()}); } },30000);
   document.addEventListener('visibilitychange',()=>{ if(document.hidden){ settle(); saveNow({online:false,lastHeartbeat:0}); } else { settle(); render(); } });
   window.addEventListener('pagehide',()=>{ settle(); saveNow({online:false,lastHeartbeat:0}); });
 };
 
-Object.assign(window,{ claimVideo, authStep, claimDailyReward, closeSheet, dialAction, doLogin, genUserId, handleBooster, hideAuth, hideSuccess,
+Object.assign(window,{ openWeekly, openHistory, openSocial, claimCheckin, claimChallenge, saveSettings, claimSocial, tapBoost, authStep, claimDailyReward, closeSheet, dialAction, doLogin, genUserId, handleBooster, hideAuth, hideSuccess,
   openSheet, openSupport, savePhoto, saveProfile, switchTab, verifyAccount, showAuth, logout });
 
 window.__appLoaded = true;
