@@ -16,8 +16,6 @@
 html,body{height:100%;overflow:hidden;background:var(--ink);color:var(--white)}
 body{background:radial-gradient(120% 70% at 50% 0%,#2b1a0d 0%,var(--ink) 60%);}
 #app{position:fixed;inset:0;display:flex;flex-direction:column;padding-top:env(safe-area-inset-top)}
-
-/* header */
 .hdr{display:flex;align-items:center;gap:10px;padding:12px 14px 6px}
 .avatar{width:42px;height:42px;border-radius:14px;background:linear-gradient(135deg,var(--saffron),var(--lotus));display:grid;place-items:center;font-weight:800;color:#1a0f00;overflow:hidden;flex-shrink:0}
 .avatar img{width:100%;height:100%;object-fit:cover}
@@ -28,13 +26,9 @@ body{background:radial-gradient(120% 70% at 50% 0%,#2b1a0d 0%,var(--ink) 60%);}
 .chip b{display:block;color:var(--jade);font-size:13px}
 .iconbtn{background:var(--panel);border:1px solid var(--line);border-radius:12px;width:38px;height:38px;color:var(--white);font-size:16px;position:relative}
 .dot{position:absolute;top:-4px;right:-4px;background:var(--lotus);border-radius:9px;font-size:9px;padding:1px 5px;font-weight:700}
-
-/* screens */
 .screen{display:none;flex:1;overflow-y:auto;padding:6px 14px 96px;flex-direction:column}
 .screen.on{display:flex}
 .screen.mine{justify-content:space-between;overflow:hidden}
-
-/* balance */
 .bal{text-align:center;margin-top:4px}
 .bal small{font-size:12px;color:var(--mist)}
 .bal .n{font-size:46px;font-weight:900;letter-spacing:-1px;color:var(--saffron);text-shadow:0 0 28px rgba(255,176,32,.35)}
@@ -43,8 +37,6 @@ body{background:radial-gradient(120% 70% at 50% 0%,#2b1a0d 0%,var(--ink) 60%);}
 .bar{height:7px;border-radius:4px;background:#0a0603;overflow:hidden;border:1px solid var(--line)}
 .bar i{display:block;height:100%;width:0;background:linear-gradient(90deg,var(--ember),var(--saffron));transition:width .8s}
 .rankrow div.t{display:flex;justify-content:space-between;font-size:11px;color:var(--mist);margin-bottom:4px}
-
-/* hero: the sutra dial */
 .hero{position:relative;width:min(72vw,300px);aspect-ratio:1;margin:0 auto;display:grid;place-items:center}
 .ring{position:absolute;inset:0;transform:rotate(-90deg)}
 .ring circle{fill:none;stroke-width:6;stroke-linecap:round}
@@ -66,16 +58,12 @@ body{background:radial-gradient(120% 70% at 50% 0%,#2b1a0d 0%,var(--ink) 60%);}
 .core.live{background:radial-gradient(circle at 35% 30%,#8ff5cf,var(--jade) 50%,#0f9f73);color:#012a1d;box-shadow:0 0 0 6px rgba(46,230,166,.12),0 14px 40px rgba(46,230,166,.3)}
 .float{position:absolute;font-weight:800;color:var(--jade);pointer-events:none;animation:up 1s ease-out forwards;font-size:16px}
 @keyframes up{to{transform:translateY(-70px);opacity:0}}
-
-/* bottom of mine screen */
 .strip{display:grid;grid-template-columns:1fr 1fr;gap:10px}
 .tile{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:12px;text-align:left;color:var(--white)}
 .tile small{display:block;font-size:11px;color:var(--mist)}
 .tile b{font-size:15px}
 .tile.boost{border-color:var(--lotus);background:linear-gradient(135deg,#3b2214,var(--panel))}
 .tile.boost b{color:var(--lotus)}
-
-/* cards */
 h2{font-size:20px;margin:8px 0 12px}
 .card{background:var(--panel);border:1px solid var(--line);border-radius:18px;padding:14px;margin-bottom:12px}
 .card h3{font-size:14px;margin-bottom:4px}
@@ -95,14 +83,10 @@ h2{font-size:20px;margin:8px 0 12px}
 input[type=text]{width:100%;padding:11px;border-radius:10px;border:1px solid var(--line);background:var(--ink);color:#fff;font-size:14px;margin:4px 0 10px}
 input[type=file]{font-size:12px;color:var(--mist);margin:4px 0 10px;width:100%}
 label{font-size:11px;color:var(--mist)}
-
-/* tab bar */
 .tabs{position:fixed;left:10px;right:10px;bottom:calc(10px + env(safe-area-inset-bottom));display:flex;background:rgba(28,19,13,.95);backdrop-filter:blur(12px);border:1px solid var(--line);border-radius:22px;padding:6px;z-index:50}
 .tab{flex:1;text-align:center;padding:8px 0;border-radius:16px;font-size:10px;color:var(--mist)}
 .tab i{display:block;font-style:normal;font-size:19px;margin-bottom:2px}
 .tab.on{background:linear-gradient(180deg,#3d2a1a,#2b1d12);color:var(--saffron)}
-
-/* modal */
 .modal{display:none;position:fixed;inset:0;background:rgba(8,4,2,.82);z-index:100;align-items:flex-end;backdrop-filter:blur(4px)}
 .sheet{width:100%;max-height:78%;overflow-y:auto;background:var(--night);border-radius:24px 24px 0 0;padding:18px 16px calc(18px + env(safe-area-inset-bottom));border-top:1px solid var(--line)}
 .sheet h3{font-size:17px;margin-bottom:10px;color:var(--saffron)}
@@ -143,7 +127,6 @@ input[type=password],input[type=email],input[type=tel]{width:100%;padding:11px;b
 .gd.now{border-color:var(--saffron);box-shadow:0 0 0 2px rgba(255,176,32,.25)}.gd.now b{color:var(--saffron)}
 .picpick{position:relative;display:block;width:84px;margin:0 auto 8px}.picpick .bigpic{margin:0}.cam{position:absolute;right:-6px;bottom:-6px;background:var(--saffron);border-radius:50%;width:28px;height:28px;display:grid;place-items:center;font-size:14px}
 .tag{font-size:10px;font-weight:800;color:#1a0f00;background:linear-gradient(90deg,var(--saffron),var(--ember));padding:4px 9px;border-radius:20px;letter-spacing:.3px}
-
 .toast{position:fixed;left:50%;bottom:calc(108px + env(safe-area-inset-bottom));transform:translateX(-50%) translateY(12px);
   background:#1c130d;border:1px solid var(--line);color:var(--white);padding:10px 18px;border-radius:24px;font-size:13px;
   max-width:88%;text-align:center;opacity:0;pointer-events:none;transition:opacity .25s,transform .25s;z-index:400}
@@ -163,15 +146,59 @@ input[type=password],input[type=email],input[type=tel]{width:100%;padding:11px;b
 .ovtitle{font-size:17px;font-weight:800;color:var(--jade);margin-bottom:4px}
 .ovmsg{font-size:13px;color:var(--mist)}
 .meterCap{font-size:11px;color:var(--saffron);text-align:center;margin-top:6px;font-weight:700}
-.tag{font-size:10px;font-weight:800;color:#1a0f00;background:linear-gradient(90deg,var(--saffron),var(--ember));padding:4px 9px;border-radius:20px;letter-spacing:.3px}
 @media (prefers-reduced-motion:reduce){.spin{animation:none}}
-
 .hist{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;background:none;border:0}
 .histIcon{position:relative;width:38px;height:38px;border-radius:50%;background:var(--panel);border:1px solid var(--line);display:grid;place-items:center;font-size:16px}
 .histLabel{font-size:9px;color:var(--mist);font-weight:700}
 .tagline{font-size:11px;color:var(--saffron);font-weight:700;margin-bottom:6px}
 .vrow em{font-style:normal;font-size:11px;color:var(--mist)}.vbtn{border:0;border-radius:10px;padding:8px 12px;font-weight:800;font-size:12px;color:#1a0f00;background:linear-gradient(90deg,var(--saffron),var(--ember))}
 .vrow{display:flex;justify-content:space-between;align-items:center;padding:9px 0;border-bottom:1px solid var(--line);font-size:13px;color:var(--mist)}.vrow:last-child{border-bottom:0}.soonpill{font-size:10px;font-weight:800;color:var(--saffron);border:1px solid var(--line);border-radius:20px;padding:3px 9px}
+/* tap & earn */
+.tapbtn{width:100%;margin:10px 0 6px;padding:22px 0;border:0;border-radius:18px;font-size:44px;touch-action:manipulation;user-select:none;-webkit-user-select:none;background:linear-gradient(135deg,#1f6f56,var(--jade));color:#012a1d;box-shadow:0 8px 24px rgba(46,230,166,.25);transition:transform .06s}
+.tapbtn:active{transform:scale(.96)}
+.tapbtn small{display:block;font-size:12px;font-weight:800;margin-top:2px}
+.tapbtn.x2{background:linear-gradient(135deg,var(--ember),var(--lotus));color:#2a0010;box-shadow:0 8px 24px rgba(255,93,143,.35)}
+.tapbtn:disabled{opacity:.4}
+.pop{position:fixed;z-index:450;pointer-events:none;font-weight:900;font-size:22px;color:var(--jade);animation:popUp .75s ease-out forwards;text-shadow:0 2px 8px #000}
+.pop.x2{color:var(--lotus);font-size:28px}
+@keyframes popUp{to{transform:translateY(-80px) scale(1.3);opacity:0}}
+
+.pgrid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:8px}
+.pr{position:relative;text-align:center}.pr svg{width:100%;transform:rotate(-90deg);display:block}
+.pr circle{fill:none;stroke-width:3.2;stroke-linecap:round}.pr .rb{stroke:var(--line)}.pr .rf{stroke-dasharray:0 100;transition:stroke-dasharray .6s}
+.pr b{position:absolute;left:0;right:0;top:34%;font-size:14px}.pr small{display:block;font-size:10px;color:var(--mist);margin-top:3px}
+.sw{position:relative;width:44px;height:24px;display:inline-block}.sw input{opacity:0;width:0;height:0}
+.sw i{position:absolute;inset:0;background:var(--line);border-radius:24px;transition:.2s}
+.sw i:before{content:"";position:absolute;width:18px;height:18px;left:3px;top:3px;background:#fff;border-radius:50%;transition:.2s}
+.sw input:checked+i{background:var(--jade)}.sw input:checked+i:before{transform:translateX(20px)}
+select{background:var(--ink);color:var(--white);border:1px solid var(--line);border-radius:8px;padding:6px 8px;font-size:13px}
+.ntf{border-left:3px solid var(--saffron);padding-left:8px}
+.combo{text-align:center;font-size:12px;font-weight:800;color:var(--mist);min-height:16px;margin:2px 0 6px;transition:color .2s}
+.combo.hot1{color:var(--saffron)}.combo.hot2{color:var(--ember)}.combo.hot3{color:var(--lotus);text-shadow:0 0 12px rgba(255,93,143,.6)}
+.bgrid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:8px}
+.bdg{background:var(--ink);border:1px solid var(--line);border-radius:14px;padding:10px 4px;text-align:center;filter:grayscale(1);opacity:.5}
+.bdg span{display:block;font-size:28px}.bdg b{display:block;font-size:11px;margin-top:2px}.bdg small{font-size:10px;color:var(--mist)}
+.bdg.on{filter:none;opacity:1;border-color:var(--saffron)}
+.bdg.new{animation:bdgPop .9s cubic-bezier(.2,1.4,.4,1),bdgGlow 1.6s ease-out}
+@keyframes bdgPop{0%{transform:scale(.4) rotate(-12deg)}60%{transform:scale(1.2) rotate(6deg)}100%{transform:scale(1)}}
+@keyframes bdgGlow{0%{box-shadow:0 0 0 0 rgba(255,176,32,.8)}100%{box-shadow:0 0 0 22px rgba(255,176,32,0)}}
+.bpop{position:fixed;inset:0;z-index:600;background:rgba(8,4,2,.8);display:flex;align-items:center;justify-content:center;animation:fadeIn .25s}
+.bbox{text-align:center;background:var(--night);border:1px solid var(--saffron);border-radius:24px;padding:28px 36px;box-shadow:0 0 60px rgba(255,176,32,.35)}
+.bbox .bico{font-size:72px;animation:bdgPop 1s cubic-bezier(.2,1.4,.4,1)}.bbox b{display:block;color:var(--saffron);font-size:18px;margin-top:6px}.bbox span{color:var(--mist);font-size:13px}
+@keyframes fadeIn{from{opacity:0}}
+.ms{margin-bottom:10px}.ms small{font-size:10px;color:var(--mist)}
+body.saver *{animation:none!important;transition:none!important;backdrop-filter:none!important}
+.frow{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--mist)}.frow .bar{flex:1}.frow b{color:var(--white);font-size:12px;min-width:64px;text-align:right}
+.fbtn{border:0;border-radius:10px;padding:7px 10px;font-weight:800;font-size:12px;color:#1a0f00;background:linear-gradient(90deg,var(--saffron),var(--ember));white-space:nowrap}.fbtn:disabled{opacity:.5}
+.core.x2{background:radial-gradient(circle at 35% 30%,#ffd0e0,var(--lotus) 50%,#b3204f);color:#2a0010;box-shadow:0 0 0 6px rgba(255,93,143,.15),0 14px 40px rgba(255,93,143,.35)}
+.core{touch-action:manipulation;user-select:none;-webkit-user-select:none}
+.vrow .sl{display:flex;align-items:center;gap:10px}.sic{width:28px;height:28px;flex-shrink:0}.sic svg{width:100%;height:100%;display:block}
+.vbtn:disabled{opacity:.5}
+@keyframes swing{0%{transform:rotate(0)}30%{transform:rotate(-28deg)}65%{transform:rotate(16deg)}100%{transform:rotate(0)}}
+.core .sym.swing{animation:swing .26s ease-out}
+@keyframes mineGlow{0%,100%{box-shadow:0 0 0 6px rgba(46,230,166,.12),0 14px 40px rgba(46,230,166,.28)}50%{box-shadow:0 0 0 14px rgba(46,230,166,.06),0 14px 56px rgba(46,230,166,.5)}}
+.on-air .core.live:not(.x2){animation:mineGlow 2.2s ease-in-out infinite}
+.on-air .ring{filter:drop-shadow(0 0 6px rgba(46,230,166,.45))}
 </style>
 </head>
 <body>
@@ -197,7 +224,7 @@ input[type=password],input[type=email],input[type=tel]{width:100%;padding:11px;b
       <div class="bar"><i id="globalProgressFill"></i></div>
       <div class="meterCap" id="globalMeterText">0% mined so far</div>
     </div>
-    <div class="bal"><small>Your mined $SUTRA</small><div class="n" id="tokenBalance">0.000</div></div>
+    <div class="bal"><small>Your mined $SUTRA</small><div class="n" id="tokenBalance">0.000</div><small id="sstLine" style="color:var(--jade);font-weight:700"></small></div>
 
     <div class="hero" id="hero">
       <svg class="ring" viewBox="0 0 100 100">
@@ -216,6 +243,8 @@ input[type=password],input[type=email],input[type=tel]{width:100%;padding:11px;b
       <div class="tile"><small>Status</small><b id="miningStatusBox">Stopped</b></div>
     </div>
 
+    <div class="card" style="margin:0"><div class="frow"><span>⛽ Fuel</span><div class="bar"><i id="fuelBar" style="width:100%"></i></div><b id="fuelTxt">500 / 500</b><button class="fbtn" id="tapBoostBtn" onclick="tapBoost()">⚡ Fuel 2x</button></div><div class="combo" id="comboBox"></div></div>
+
     <div class="card" style="margin:0">
       <h3>🚀 Boosters</h3>
       <p id="boostInfo" style="margin:0">Start mining, then unlock 2x, 3x and 4x one after another. Each needs a video.</p>
@@ -226,18 +255,23 @@ input[type=password],input[type=email],input[type=tel]{width:100%;padding:11px;b
       </div>
     </div>
 
+    <div class="card" style="margin:0"><h3>📊 Progress</h3><div class="pgrid"><div class="pr"><svg viewBox="0 0 36 36"><circle class="rb" cx="18" cy="18" r="15.9155"/><circle class="rf" id="rgFuel" cx="18" cy="18" r="15.9155" stroke="#2ee6a6" pathLength="100"/></svg><b id="rgFuelT">0</b><small>Fuel</small></div><div class="pr"><svg viewBox="0 0 36 36"><circle class="rb" cx="18" cy="18" r="15.9155"/><circle class="rf" id="rgStreak" cx="18" cy="18" r="15.9155" stroke="#ffb020" pathLength="100"/></svg><b id="rgStreakT">0</b><small>Daily streak</small></div><div class="pr"><svg viewBox="0 0 36 36"><circle class="rb" cx="18" cy="18" r="15.9155"/><circle class="rf" id="rgRef" cx="18" cy="18" r="15.9155" stroke="#ff5d8f" pathLength="100"/></svg><b id="rgRefT">0</b><small>Referral level</small></div></div></div>
+    
+
     <div class="card" style="margin:0">
-      <h3>🎬 Video rewards</h3>
-      <div class="vrow"><span>🎬 Video claim 1</span><span class="soonpill">Coming soon</span></div><div class="vrow"><span>🎬 Video claim 2</span><span class="soonpill">Coming soon</span></div><div class="vrow"><span>🎬 Video claim 3</span><span class="soonpill">Coming soon</span></div><div class="vrow"><span>🎬 Video claim 4</span><span class="soonpill">Coming soon</span></div><div class="vrow"><span>🎬 Video claim 5</span><span class="soonpill">Coming soon</span></div><div class="vrow"><span>🎬 Video claim 6</span><span class="soonpill">Coming soon</span></div><div class="vrow"><span>🎬 Video claim 7</span><span class="soonpill">Coming soon</span></div><div class="vrow"><span>🎬 Video claim 8</span><span class="soonpill">Coming soon</span></div><div class="vrow"><span>🎬 Video claim 9</span><span class="soonpill">Coming soon</span></div><div class="vrow"><span>🎬 Video claim 10</span><span class="soonpill">Coming soon</span></div>
+      <h3>🔗 Social claims · +100 each</h3>
+      <div id="socialList"></div>
     </div>
-      </div>
+  </div>
 
   <div id="s-earn" class="screen">
     <h2>Daily gift</h2>
-    <div class="card"><h3>30-day reward</h3><p id="giftInfo">Claim every day without missing. Day 1 = 100, Day 2 = 200 ... Day 30 = 3,000 SUTRA.</p>
+    <div class="card"><h3>30-day reward</h3><p id="giftInfo">Claim every day without missing. Day 1 = 50, Day 2 = 100, Day 3 = 150 … Day 30 = 1,500 SUTRA.</p>
       <div class="gift" id="giftGrid"></div>
       <button class="btn" id="giftBtn" onclick="claimDailyReward()">Claim</button></div>
-    <div class="card"><h3>🎬 Video Claim</h3><div id="vidList"></div></div>
+        <div class="card"><h3>📅 Daily check-in</h3><p>Check in once a day for a bonus. 7-day cycle: 20 → 200 SUTRA. Miss a day and the cycle restarts.</p><div id="ciBox"></div></div>
+    <div class="card"><h3>🎯 Daily challenges</h3><p>3 new challenges every day. Complete them and claim the reward.</p><div id="chList"></div></div>
+    <div class="card"><h3>🔗 Social claims</h3><div id="vidList"></div></div>
     <div class="card"><h3>📢 Announcements</h3><button class="btn alt" onclick="openSheet('annModal')">Open announcements</button></div>
   </div>
 
@@ -246,18 +280,26 @@ input[type=password],input[type=email],input[type=tel]{width:100%;padding:11px;b
     <div class="card"><h3>Community</h3>
       <button class="btn tg" onclick="window.open(officialGroupLink,'_blank')">Join Telegram group</button>
       <button class="btn alt" onclick="openSupport()">Contact support</button></div>
-    <div class="card"><h3>Invite friends, earn 500 $SUTRA each</h3>
-      <p>You get the bonus after your friend starts mining, claims their first session, and completes a second session.</p>
+    <div class="card"><h3>🤝 Invite friends · 20 levels</h3>
+      <p>A friend counts after finishing 2 mining sessions. Every 5 friends unlock the next level: Level 1 = 5 friends → 300 SUTRA, Level 2 = 10 friends → 600, … Level 20 = 100 friends → 6,000.</p>
+      <div class="row">Current level<b id="refLvl">0 / 20</b></div>
+      <div class="bar"><i id="refLvlBar"></i></div>
+      <div class="meterCap" id="refLvlTxt"></div>
       <div class="row">Rewarded friends<b id="refCount2">0</b></div>
       <div class="row">Waiting for friend<b id="refWaiting">0</b></div>
       <button class="btn" onclick="shareApp()">Share</button>
       <button class="btn alt" onclick="copyRef()">Copy link</button></div>
+    <div class="card"><h3>📈 Referral stats</h3><div class="row">Friends invited<b id="rsTotal">0</b></div><div class="row">Qualified (2 sessions)<b id="rsQual">0</b></div><div class="row">Waiting<b id="rsWait">0</b></div><div class="row">Conversion<b id="rsConv">0%</b></div><div class="row">Earned from referrals<b id="rsEarn" style="color:var(--saffron)">0 SUTRA</b></div></div>
+    <div class="card"><h3>🎖️ Referral badges</h3><div class="bgrid" id="badgeGrid"></div></div>
+    <div class="card"><h3>🎯 Referral milestones</h3><div id="msList"></div></div>
+    <div class="card"><h3>📊 Referral progress · last 14 days</h3><div id="refChart"></div></div>
+    <div class="card"><h3>🏅 Top referrers</h3><div id="refBoard" style="font-size:13px;color:var(--mist)">Loading...</div></div>
     <div class="card"><h3>🏆 Top miners</h3><div id="leaderboardList" style="font-size:13px;color:var(--mist)">Loading...</div></div>
   </div>
 
   <div id="s-wallet" class="screen">
     <h2>Wallet</h2>
-    <div class="card" style="border:1px solid var(--saffron);text-align:center"><h3>💸 Withdrawal</h3><div style="font-size:22px;font-weight:900;color:var(--saffron);margin:6px 0">🪙 SST Coin</div><p>Withdrawals will open once SST coin is listed.</p><button class="btn alt" disabled>🔒 SST Coin — Coming Soon</button></div>
+    <div class="card" style="border:1px solid var(--saffron);text-align:center"><h3>💸 Withdrawal</h3><div style="font-size:22px;font-weight:900;color:var(--saffron);margin:6px 0">🪙 1,000 SUTRA = 1 SST coin</div><p>Your balance: <b id="sstWallet" style="color:var(--jade)">0 SST</b> · withdrawals will open soon.</p><button class="btn alt" disabled>🔒 Withdrawal — Coming Soon</button></div>
     <div class="card" style="text-align:center"><small style="color:var(--mist);font-size:11px">Total balance · live (mining + boosts + referrals + gifts)</small>
       <div style="font-size:34px;font-weight:900;color:var(--saffron)" id="modalTokenBal">0.000</div></div>
     <div class="card"><h3>⛏️ Mining</h3>
@@ -272,9 +314,10 @@ input[type=password],input[type=email],input[type=tel]{width:100%;padding:11px;b
       <div class="row">Users joined<b id="wJoined">0</b></div>
       <div class="row">Online now<b id="wOnline">0</b></div>
       <div class="row">Mining<b id="wMining">—</b></div>
-      <div class="row" style="border-top:1px solid var(--line);margin-top:4px;padding-top:10px"><span style="color:var(--white);font-weight:800">Total mined<br><small style="font-weight:400;color:var(--mist);font-size:10px">mining + boost + gifts + referrals + videos</small></span><b id="wTotal" style="color:var(--saffron)">0.000</b></div>
+      <div class="row" style="border-top:1px solid var(--line);margin-top:4px;padding-top:10px"><span style="color:var(--white);font-weight:800">Total mined<br><small style="font-weight:400;color:var(--mist);font-size:10px">mining + boost + gifts + referrals + taps + social</small></span><b id="wTotal" style="color:var(--saffron)">0.000</b></div>
       </div>
-    <div class="card"><h3>📜 History</h3><button class="btn alt" onclick="openSheet('actModal')">Open history</button></div>
+    <div class="card"><h3>📜 History</h3><button class="btn alt" onclick="openHistory()">Open history</button></div>
+    <div class="card"><h3>📈 Weekly mining report</h3><button class="btn alt" onclick="openWeekly()">Open weekly report</button></div>
   </div>
 
   <div id="s-profile" class="screen">
@@ -319,6 +362,7 @@ input[type=password],input[type=email],input[type=tel]{width:100%;padding:11px;b
       </div>
       <button class="btn alt" id="authClose" style="display:none" onclick="hideAuth()">Cancel</button>
     </div>
+    <div class="card"><button class="btn alt" onclick="openSheet('setModal')" style="margin:0;display:flex;justify-content:space-between;align-items:center"><span>⚙️ Settings</span><span>›</span></button></div>
     <div class="card" id="accountCard"></div>
   </div>
 
@@ -345,7 +389,6 @@ input[type=password],input[type=email],input[type=tel]{width:100%;padding:11px;b
   <button class="btn alt" onclick="document.getElementById('shareTextBox').select();document.execCommand('copy');showToast('Copied to clipboard')">Copy</button>
   <button class="btn" onclick="closeSheet('shareModal')">Done</button></div></div>
 
-<!-- video ad player -->
 <div id="adBox">
   <video id="adVideo" playsinline muted loop></video>
   <div id="adPh" style="display:none;font-size:46px;text-align:center">🎬<div style="font-size:14px;color:#b8a690;margin-top:8px">Video ad</div></div>
@@ -359,15 +402,16 @@ input[type=password],input[type=email],input[type=tel]{width:100%;padding:11px;b
   <button class="btn tg" onclick="window.open(officialGroupLink,'_blank')">Join Telegram group</button>
   <button class="btn" onclick="closeSheet('welcomeModal')">Start mining</button></div></div>
 <div class="modal" id="claimModal"><div class="sheet"><h3>Claim history</h3><div id="claimList"></div><button class="btn alt" onclick="closeSheet('claimModal')">Close</button></div></div>
-<div class="modal" id="actModal"><div class="sheet"><h3>History</h3><div id="activityList"></div><button class="btn alt" onclick="closeSheet('actModal')">Close</button></div></div>
-<div class="modal" id="annModal"><div class="sheet"><h3>Announcements</h3><div id="announcementList">Loading...</div><button class="btn alt" onclick="closeSheet('annModal')">Close</button></div></div>
+<div class="modal" id="wkModal"><div class="sheet"><h3>📈 Weekly mining report</h3><div id="wkBody"></div><button class="btn alt" onclick="closeSheet('wkModal')">Close</button></div></div>
+<div class="modal" id="setModal"><div class="sheet"><h3>⚙️ Settings</h3><div class="row" style="align-items:center"><span>🔊 Sound effects</span><label class="sw"><input type="checkbox" id="setSound" onchange="saveSettings()"><i></i></label></div><div class="row" style="align-items:center"><span>📳 Vibration &amp; haptics</span><label class="sw"><input type="checkbox" id="setVib" onchange="saveSettings()"><i></i></label></div><div class="row" style="align-items:center"><span>Haptic intensity</span><select id="setStr" onchange="saveSettings()"><option value="off">Off</option><option value="light">Light</option><option value="medium">Medium</option><option value="strong">Strong</option></select></div><div class="row" style="align-items:center"><span>🔔 Referral notifications</span><label class="sw"><input type="checkbox" id="setNotif" onchange="saveSettings()"><i></i></label></div><div class="row" style="align-items:center"><span>⛏️ Mining alerts</span><label class="sw"><input type="checkbox" id="setMine" onchange="saveSettings()"><i></i></label></div><div class="row" style="align-items:center"><span>🔋 Battery saver</span><select id="setSaver" onchange="saveSettings()"><option value="auto">Auto (low battery)</option><option value="on">Always on</option><option value="off">Off</option></select></div><button class="btn alt" onclick="closeSheet('setModal')">Close</button></div></div>
+<div class="modal" id="actModal"><div class="sheet"><h3>📅 Day-by-day history</h3><div id="dayHist"></div><h3 style="margin-top:14px">Recent activity</h3><div id="activityList"></div><button class="btn alt" onclick="closeSheet('actModal')">Close</button></div></div>
+<div class="modal" id="annModal"><div class="sheet"><h3>Notifications</h3><div id="notifList"></div><h3 style="margin-top:14px">Announcements</h3><div id="announcementList">Loading...</div><button class="btn alt" onclick="closeSheet('annModal')">Close</button></div></div>
 
 <script>
-/* works even if the main app fails to load, so the tabs never feel dead */
 function switchTab(t){document.querySelectorAll('.screen').forEach(function(e){e.classList.remove('on')});document.querySelectorAll('.tab').forEach(function(e){e.classList.toggle('on',e.dataset.t===t)});var s=document.getElementById('s-'+t);if(s)s.classList.add('on');}
 function openSheet(id){document.getElementById(id).style.display='flex'}
 function closeSheet(id){document.getElementById(id).style.display='none'}
-setTimeout(function(){ if(!window.__ready){ var m=document.getElementById('mineText'); if(m){m.textContent='No connection'; var c=document.getElementById('connErr'); if(c){c.style.display='block'; c.innerHTML='<h3 style="color:#ff5d8f">⚠️ App did not finish loading</h3><p>Check Firebase: Authentication → Anonymous ON, Firestore rules published, and your internet.</p>';} document.getElementById('mineSubText').textContent='Tap to retry'; var b=document.getElementById('mineBtn'); b.disabled=false; b.onclick=function(){location.reload()};} } },10000);
+setTimeout(function(){ if(!window.__ready){ var m=document.getElementById('mineText'); if(m){m.textContent='No connection'; var c=document.getElementById('connErr'); if(c){c.style.display='block'; c.innerHTML='<h3 style="color:#ff5d8f">⚠️ Unable to connect</h3><p>Please check your internet connection and try again.</p>';} document.getElementById('mineSubText').textContent='Tap to retry'; var b=document.getElementById('mineBtn'); b.disabled=false; b.onclick=function(){location.reload()};} } },10000);
 </script>
 <script type="module" src="app.js"></script>
 </body>
