@@ -182,8 +182,8 @@ const SOCIALS = [
   { id:'youtube',   n:'YouTube',          act:'Subscribe', url:'' },   // paste your YouTube channel link
   { id:'twitter',   n:'Twitter / X',      act:'Follow',    url:'' },   // paste your Twitter/X profile link
   { id:'telegram',  n:'Telegram channel', act:'Join',      url:'' },   // paste your Telegram channel link
-  { id:'tggroup',   n:'Telegram group',   act:'Join',      url:officialGroupLink },
-  { id:'support',   n:'Support group',    act:'Join',      url:supportLink }
+  { id:'tggroup',   n:'Telegram group',   act:'Join',      url:"https://t.me/SutraTokenOfficialgroup"},
+  { id:'support',   n:'Support group',    act:'Join',      url:"https://t.me/SutraTokenMiningOfficial" } 
 ];
 
 const TOTAL_SUPPLY = 2e12, DAY = 864e5, BOOST_MS = 144e5, BASE = 2000/86400;
