@@ -98,6 +98,7 @@ window.loginAccount = async (userId, email, password) => {
 
 // referrals: every write touches ONLY the caller's own document
 window.refCreate = (referredId, referrerId) => setDoc(doc(db, "referrals", String(referredId)), { referrerId: String(referrerId), qualified: false, createdAt: serverTimestamp() });
+window.refEnsure = async (referredId, referrerId) => { const r = doc(db, "referrals", String(referredId)); if (!(await getDoc(r)).exists()) await setDoc(r, { referrerId: String(referrerId), qualified: false, createdAt: serverTimestamp() }); };
 window.refMarkQualified = (referredId) => setDoc(doc(db, "referrals", String(referredId)), { qualified: true }, { merge: true });
 window.refListFor = async (myId) => {
   const s = await getDocs(query(collection(db, "referrals"), where("referrerId", "==", String(myId))));
@@ -150,11 +151,11 @@ onAuthStateChanged(auth, async (u) => {
 // ============================================================
 // PART 2: App logic - mining, boosts, tap, gifts, social claims, referrals, UI
 // ============================================================
-const officialGroupLink = "https://t.me/+qBuycU3TidEzMTJl"; window.officialGroupLink = officialGroupLink;
+const officialGroupLink = "https://t.me/SutraTokenOfficialgroup"; window.officialGroupLink = officialGroupLink;
 const BOT_USERNAME = "SutraToken_bot";
 const APP_SHORT_NAME = "";
 let busy=false;
-const supportLink = "https://t.me/call/WmasSD9vLGT2vzz_kOebbouFQ4w";
+const supportLink = "https://t.me/SutraTokenMiningOfficial";
 
 // ===== VIDEO ADS: paste direct .mp4 links. Videos play in order 1→2→3→4 then repeat. Empty link = plain timer screen. =====
 const AD_SEQUENCE = [15, 20, 25, 30];
@@ -173,8 +174,8 @@ const IC={
  youtube:`<svg viewBox="0 0 32 32"><rect y="6" width="32" height="20" rx="6" fill="#f00"/><path d="M13 11.5v9l8-4.5z" fill="#fff"/></svg>`,
  twitter:`<svg viewBox="0 0 32 32"><rect width="32" height="32" rx="9" fill="#000"/><path d="M9 9l14 14M23 9L9 23" stroke="#fff" stroke-width="2.6" stroke-linecap="round"/></svg>`,
  telegram:`<svg viewBox="0 0 32 32"><circle cx="16" cy="16" r="16" fill="#229ed9"/><path d="M7 15.6l16.4-6.3c.8-.3 1.5.2 1.2 1.4l-2.8 13.1c-.2.9-.8 1.1-1.5.7l-4.2-3.1-2 2c-.2.2-.4.4-.8.4l.3-4.3 7.8-7c.3-.3-.1-.5-.5-.2l-9.6 6-4.1-1.3c-.9-.3-.9-.9.2-1.3z" fill="#fff"/></svg>`,
- support:`<svg viewBox="0 0 32 32"><circle cx="16" cy="16" r="16" fill="#ff7a1a"/><circle cx="16" cy="16" r="8" fill="none" stroke="#fff" stroke-width="3"/><circle cx="16" cy="16" r="3" fill="#fff"/></svg>`};
-IC.tggroup=IC.telegram;
+ support:`<svg viewBox="0 0 32 32"><circle cx="16" cy="16" r="16" fill="#ff7a1a"/><path d="M8.5 17v-1.5a7.5 7.5 0 0 1 15 0V17" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round"/><rect x="7" y="16.5" width="4" height="6.5" rx="2" fill="#fff"/><rect x="21" y="16.5" width="4" height="6.5" rx="2" fill="#fff"/><path d="M23 23c0 2.2-2 3.2-5 3.2" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round"/><circle cx="17.5" cy="26.2" r="1.6" fill="#fff"/></svg>`};
+IC.tggroup=`<svg viewBox="0 0 32 32"><circle cx="16" cy="16" r="16" fill="#229ed9"/><circle cx="9.5" cy="13.5" r="2.4" fill="#fff" opacity=".8"/><circle cx="22.5" cy="13.5" r="2.4" fill="#fff" opacity=".8"/><circle cx="16" cy="12" r="3.4" fill="#fff"/><path d="M9.5 23c0-3.6 2.9-6 6.5-6s6.5 2.4 6.5 6z" fill="#fff"/></svg>`;
 const SOCIAL_WAIT=8000, socialOpen={};   // Claim unlocks 8s after the person taps Join/Follow
 const SOCIALS = [
   { id:'instagram', n:'Instagram',        act:'Follow',    url:'' },   // paste your Instagram page link
@@ -182,14 +183,15 @@ const SOCIALS = [
   { id:'youtube',   n:'YouTube',          act:'Subscribe', url:'' },   // paste your YouTube channel link
   { id:'twitter',   n:'Twitter / X',      act:'Follow',    url:'' },   // paste your Twitter/X profile link
   { id:'telegram',  n:'Telegram channel', act:'Join',      url:'' },   // paste your Telegram channel link
-  { id:'tggroup',   n:'Telegram group',   act:'Join',      url:"https://t.me/SutraTokenOfficialgroup"},
-  { id:'support',   n:'Support group',    act:'Join',      url:"https://t.me/SutraTokenMiningOfficial" } 
+  { id:'tggroup',   n:'Telegram group',   act:'Join',      url:officialGroupLink },
+  { id:'support',   n:'Support group',    act:'Join',      url:supportLink }
 ];
 
 const TOTAL_SUPPLY = 2e12, DAY = 864e5, BOOST_MS = 144e5, BASE = 2000/86400;
 const BOOST_BONUS = {1:500, 2:500, 3:1000};
 const BOOST_DAILY_LIMIT = 2;
 const FUEL_MAX = 500;                                   // taps per day
+const REF_FRIEND_REWARD = 500;   // paid instantly when an invited friend starts mining
 const REF_LEVELS = 20, refNeed = n => 5*n, refReward = n => 300*n;   // 5,10,15… friends → 300,600,900… SUTRA
 const boostRate = () => boostLevel ? BOOST_BONUS[boostLevel]/(BOOST_MS/1000) : 0;
 const $ = id => document.getElementById(id);
@@ -256,10 +258,10 @@ let totalSessions=0, referralCount=0, adIndex=0, activity=[], referredBy="", cla
 let claims=[], totalEarned=0;
 let socialDone=[], tapDay=-1, fuel=FUEL_MAX, tapMult=1, refLevelPaid=0;
 let refTotal=0, refSeen=0, notifs=[];
-let badgesSeen=null, milestonePaid=[], refHist={}, ciDay=-1, ciStreak=0, chDay=-1, chProg={}, chDone=[], combo=0, lastTapT=0, dayHist={}, histFirst=-1, alertMark={s:0,soon:0,done:0};
+let badgesSeen=null, milestonePaid=[], refHist={}, ciDay=-1, ciStreak=0, chDay=-1, chProg={}, chDone=[], combo=0, lastTapT=0, dayHist={}, histFirst=-1, alertMark={s:0,soon:0,done:0}, refPaid=[], refQSent=false, refFriendEarn=0;
 let globalMined=0, globalUsers=0, onlineUsers=0, tick=0;
 
-const snapshot = () => ({balance, pending, miningStart, boostLevel, boostEnd, lastCalc, totalSessions, referralCount, adIndex, activity, referredBy, claimedSessions, dailyStreak, lastDailyDay, boostDay, boostUses, claims, totalEarned, socialDone, tapDay, fuel, tapMult, refLevelPaid, refSeen, notifs, settings, badgesSeen, milestonePaid, refHist, ciDay, ciStreak, chDay, chProg, chDone, dayHist, histFirst, alertMark});
+const snapshot = () => ({balance, pending, miningStart, boostLevel, boostEnd, lastCalc, totalSessions, referralCount, adIndex, activity, referredBy, claimedSessions, dailyStreak, lastDailyDay, boostDay, boostUses, claims, totalEarned, socialDone, tapDay, fuel, tapMult, refLevelPaid, refSeen, notifs, settings, badgesSeen, milestonePaid, refHist, ciDay, ciStreak, chDay, chProg, chDone, dayHist, histFirst, alertMark, refPaid, refQSent, refFriendEarn});
 async function saveNow(extra={}){ const u=getUserId(); if(!loaded||!u) return; await window.saveUserData(u,{...snapshot(),...extra}); pushLeaderboardRow(); }
 function log(m){ activity.unshift({m, t:new Date().toLocaleString()}); activity.length=Math.min(activity.length,50); renderActivity(); }
 const CLAIM_LABEL={mining:"⛏️ Mining claimed",gift:"🎁 Daily gift claimed",video:"🎬 Video reward",social:"🔗 Social task",streak:"🔥 Streak bonus",checkin:"📅 Daily check-in",challenge:"🎯 Daily challenge",milestone:"🎯 Referral milestone",referral:"🤝 Referral level reward"};
@@ -441,7 +443,6 @@ async function dialInner(){
     if(mState()!=='done') return;
     settle(); const claimed=pending; balance+=pending; claimedSessions++; log(`✅ Claimed ${claimed.toFixed(3)} SUTRA`); addClaim('mining',claimed); pending=0; miningStart=0; boostLevel=0; boostEnd=0;
     await saveNow(); render(); showSuccess(`${claimed.toFixed(3)} SUTRA added to your balance`);
-    if(referredBy && claimedSessions>=2) window.refMarkQualified(getUserId()).catch(()=>{});
     return;
   }
   if(st!=='idle') return;
@@ -453,7 +454,7 @@ async function dialInner(){
     const d=r.data; miningStart=d.miningStart; pending=Math.max(pending,d.pending||0); lastCalc=d.lastCalc||miningStart; boostLevel=d.boostLevel||0; boostEnd=d.boostEnd||0;
     showToast("Mining is already running. Next session starts after 24 hours.","error"); render(); return;
   }
-  miningStart=ts; lastCalc=ts; pending=0; boostLevel=0; boostEnd=0; totalSessions++;
+  miningStart=ts; lastCalc=ts; pending=0; boostLevel=0; boostEnd=0; totalSessions++; markReferralQualified();
   log("⛏️ 24-hour mining started"); await saveNow(); render();
 }
 async function handleBooster(n){ if(busy) return; busy=true; try{ await boosterInner(n); } finally{ busy=false; } }
@@ -506,7 +507,7 @@ function renderRings(){ setRing('Fuel',fuel/FUEL_MAX*100,fuel); setRing('Streak'
 function renderRefStats(){
   if(!$('rsTotal')) return; const L=refLevelPaid, tot=Math.max(refTotal,referralCount);
   $('rsTotal').innerText=tot; $('rsQual').innerText=referralCount; $('rsWait').innerText=refWaiting;
-  $('rsConv').innerText=(tot?Math.round(referralCount/tot*100):0)+'%'; $('rsEarn').innerText=(300*L*(L+1)/2).toLocaleString()+' SUTRA';
+  $('rsConv').innerText=(tot?Math.round(referralCount/tot*100):0)+'%'; $('rsEarn').innerText=(300*L*(L+1)/2+refFriendEarn).toLocaleString()+' SUTRA';
 }
 function notify(icon,msg,big){
   notifs.unshift({i:icon,m:msg,t:Date.now()}); notifs.length=Math.min(notifs.length,30); renderNotifs(); log(icon+' '+msg);
@@ -785,6 +786,10 @@ function renderRef(){
   $('refLvl').innerText=`${l} / ${REF_LEVELS}`; $('refLvlBar').style.width=(l>=REF_LEVELS?100:(referralCount%5)*20)+'%';
   $('refLvlTxt').innerText=l>=REF_LEVELS?'Max level reached 🎉':`${referralCount} friends · ${refNeed(n)-referralCount} more for Level ${n} (+${refReward(n)} SUTRA)`;
 }
+async function markReferralQualified(){
+  if(!referredBy||refQSent||!loaded) return;
+  try{ await window.refEnsure(getUserId(),referredBy); await window.refMarkQualified(getUserId()); refQSent=true; saveNow(); }catch(e){ console.error('referral qualify failed',e); }
+}
 async function checkReferrals(){
   if(!loaded) return;
   try{
@@ -792,10 +797,11 @@ async function checkReferrals(){
     const nj=list.length-refSeen; if(nj>0){ notify('🎉',`${nj} new friend${nj>1?'s':''} joined with your link`); refSeen=list.length; changed=true; }
     for(const r of list){
       if(!r.qualified) { wait++; continue; }
-      if(await window.refClaimed(r.id)) continue;
+      if(refPaid.includes(r.id)) continue;
+      if(await window.refClaimed(r.id)){ refPaid.push(r.id); changed=true; continue; }
       try{
         await window.refClaim(r.id, getUserId());
-        referralCount++; changed=true; notify('🤝',`A friend completed 2 sessions · ${referralCount} qualified friends`);
+        refPaid.push(r.id); referralCount++; refFriendEarn+=REF_FRIEND_REWARD; balance+=REF_FRIEND_REWARD; addClaim('referral',REF_FRIEND_REWARD); changed=true; notify('🤝',`A friend started mining · +${REF_FRIEND_REWARD} SUTRA · ${referralCount} friends`,true);
       }catch(e){}
     }
     refWaiting=wait; if(payRefLevels()) changed=true; if(payMilestones()) changed=true; if(checkBadges()) changed=true; recordRefHist(); renderMilestones(); renderRefChart(); if(changed) await saveNow(); render();
@@ -832,7 +838,7 @@ window.bootApp = async function(au){
   referredBy=d.referredBy||""; claimedSessions=d.claimedSessions||0; dailyStreak=d.dailyStreak||0; lastDailyDay=(d.lastDailyDay ?? -1);
   boostDay=(d.boostDay ?? -1); boostUses=d.boostUses||0;
   socialDone=Array.isArray(d.socialDone)?d.socialDone:[]; tapDay=(d.tapDay ?? -1); fuel=(d.fuel ?? FUEL_MAX); tapMult=d.tapMult||1; refLevelPaid=d.refLevelPaid||0; tapRoll();
-  refSeen=d.refSeen||0; badgesSeen=Array.isArray(d.badgesSeen)?d.badgesSeen:null; milestonePaid=Array.isArray(d.milestonePaid)?d.milestonePaid:[]; refHist=(d.refHist&&typeof d.refHist==='object')?d.refHist:{}; ciDay=d.ciDay ?? -1; ciStreak=d.ciStreak||0; chDay=d.chDay ?? -1; chProg=d.chProg||{}; chDone=Array.isArray(d.chDone)?d.chDone:[]; dayHist=(d.dayHist&&typeof d.dayHist==='object')?d.dayHist:{}; histFirst=d.histFirst ?? -1; alertMark=(d.alertMark&&typeof d.alertMark==='object')?d.alertMark:{s:0,soon:0,done:0}; notifs=Array.isArray(d.notifs)?d.notifs:[]; Object.assign(settings,d.settings||{}); settings.saver=settings.saver||'auto'; applySaver(); applySettingsUI(); renderNotifs(); recordRefHist(); checkBadges(); renderMilestones(); renderRefChart(); renderCheckin(); renderChallenges();
+  refSeen=d.refSeen||0; badgesSeen=Array.isArray(d.badgesSeen)?d.badgesSeen:null; milestonePaid=Array.isArray(d.milestonePaid)?d.milestonePaid:[]; refHist=(d.refHist&&typeof d.refHist==='object')?d.refHist:{}; ciDay=d.ciDay ?? -1; ciStreak=d.ciStreak||0; chDay=d.chDay ?? -1; chProg=d.chProg||{}; chDone=Array.isArray(d.chDone)?d.chDone:[]; dayHist=(d.dayHist&&typeof d.dayHist==='object')?d.dayHist:{}; histFirst=d.histFirst ?? -1; refPaid=Array.isArray(d.refPaid)?d.refPaid:[]; refQSent=!!d.refQSent; refFriendEarn=Number(d.refFriendEarn)||0; alertMark=(d.alertMark&&typeof d.alertMark==='object')?d.alertMark:{s:0,soon:0,done:0}; notifs=Array.isArray(d.notifs)?d.notifs:[]; Object.assign(settings,d.settings||{}); settings.saver=settings.saver||'auto'; applySaver(); applySettingsUI(); renderNotifs(); recordRefHist(); checkBadges(); renderMilestones(); renderRefChart(); renderCheckin(); renderChallenges();
   if(tgUser && !d.name){ profile.name=(tgUser.first_name+" "+(tgUser.last_name||"")).trim(); profile.firstName=tgUser.first_name; profile.lastName=tgUser.last_name||""; }
   loaded=true; window.__ready=true; const sc=$('secCheck'); if(sc) sc.remove();
   const firstTime = !d.seenWelcome;
@@ -850,7 +856,9 @@ window.bootApp = async function(au){
   if(firstTime) openSheet('welcomeModal');
   loadAnnouncements(); loadLeaderboard(); loadRefBoard();
   renderGift(); renderSocials(); checkReferrals();
-  setInterval(loop,1000); setInterval(loadLeaderboard,60000); setInterval(loadRefBoard,60000); setInterval(checkReferrals,60000);
+  if(referredBy){ window.refEnsure(uid,referredBy).catch(()=>{}).then(()=>{ if(miningStart||totalSessions>=1) markReferralQualified(); }); }
+  document.addEventListener('visibilitychange',()=>{ if(!document.hidden) checkReferrals(); });
+  setInterval(loop,1000); setInterval(loadLeaderboard,60000); setInterval(loadRefBoard,60000); setInterval(checkReferrals,30000);
   setInterval(()=>{ if(!document.hidden){ settle(); saveNow({online:true,lastHeartbeat:Date.now()}); } },30000);
   document.addEventListener('visibilitychange',()=>{ if(document.hidden){ settle(); saveNow({online:false,lastHeartbeat:0}); } else { settle(); render(); } });
   window.addEventListener('pagehide',()=>{ settle(); saveNow({online:false,lastHeartbeat:0}); });
