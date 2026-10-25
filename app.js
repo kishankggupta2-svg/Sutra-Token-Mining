@@ -3,7 +3,7 @@
 // ============================================================
 import { initializeApp } from "https://www.gstatic.com/firebasejs/12.2.1/firebase-app.js";
 import { getFirestore, doc, setDoc, getDoc, collection, getDocs, runTransaction, serverTimestamp, query, where, orderBy, limit, getAggregateFromServer, sum, count } from "https://www.gstatic.com/firebasejs/12.2.1/firebase-firestore.js";
-import { getAuth, createUserWithEmailAndPassword, signInWithEmailAndPassword, sendEmailVerification, signOut, onAuthStateChanged, signInAnonymously, linkWithCredential, EmailAuthProvider } from "https://www.gstatic.com/firebasejs/12.2.1/firebase-auth.js";
+import { getAuth, createUserWithEmailAndPassword, signInWithEmailAndPassword, sendEmailVerification, signOut, onAuthStateChanged, signInAnonymously, linkWithCredential, EmailAuthProvider, sendPasswordResetEmail } from "https://www.gstatic.com/firebasejs/12.2.1/firebase-auth.js";
 
 const app = initializeApp({
   apiKey: "AIzaSyBObs__5uwNvglPIdYjPKHh5q14Wc5F0yA",
@@ -121,6 +121,9 @@ window.lbStats = async () => {
     getAggregateFromServer(query(c, where("lastHeartbeat", ">", Date.now() - 12e4)), { online: count() }) ]);
   return { users: t.data().users, mined: t.data().mined || 0, online: o.data().online };
 };
+window.sendReset = (email) => sendPasswordResetEmail(auth, email);
+window.socialClaimed = async (docKey, id) => (await getDoc(doc(db, "socialClaims", docKey + "_" + id))).exists();
+window.socialClaim = (docKey, id) => setDoc(doc(db, "socialClaims", docKey + "_" + id), { docKey: String(docKey), id, at: serverTimestamp() });
 window.resendVerification = () => sendEmailVerification(auth.currentUser);
 window.logoutAccount = () => signOut(auth);
 window.userIdExists = async (id) => (await getDoc(doc(db, "userIds", id))).exists();
@@ -166,6 +169,19 @@ const AD_VIDEOS = [
   ""    // VIDEO 4 (30s)
 ];
 
+// ===== VIDEO LINKS PER CLAIM: paste a direct .mp4 link for any place below. =====
+// Empty = the 4 videos above are used in rotation (15s → 20s → 25s → 30s, then repeat).
+const AD_SLOTS = {
+  start:     "",   // before a 24-hour mining session starts
+  claim:     "",   // before claiming a finished mining session
+  boost:     "",   // 2x / 3x / 4x booster
+  fuel:      "",   // Fuel 2x
+  gift:      "",   // Daily gift
+  checkin:   "",   // Daily check-in
+  challenge: "",   // Daily challenges
+  social:    ""    // Social claims (Telegram, YouTube, Instagram, ...)
+};
+
 // ===== SOCIAL CLAIMS: +100 SUTRA each, once per task, after the 15/20/25/30s video. Put your real links in "url". =====
 const SOCIAL_REWARD = 100;
 const IC={
@@ -178,13 +194,13 @@ const IC={
 IC.tggroup=`<svg viewBox="0 0 32 32"><circle cx="16" cy="16" r="16" fill="#229ed9"/><circle cx="9.5" cy="13.5" r="2.4" fill="#fff" opacity=".8"/><circle cx="22.5" cy="13.5" r="2.4" fill="#fff" opacity=".8"/><circle cx="16" cy="12" r="3.4" fill="#fff"/><path d="M9.5 23c0-3.6 2.9-6 6.5-6s6.5 2.4 6.5 6z" fill="#fff"/></svg>`;
 const SOCIAL_WAIT=8000, socialOpen={};   // Claim unlocks 8s after the person taps Join/Follow
 const SOCIALS = [
-  { id:'instagram', n:'Instagram',        act:'Follow',    url:'' },   // paste your Instagram page link
-  { id:'facebook',  n:'Facebook',         act:'Follow',    url:'' },   // paste your Facebook page link
-  { id:'youtube',   n:'YouTube',          act:'Subscribe', url:'' },   // paste your YouTube channel link
-  { id:'twitter',   n:'Twitter / X',      act:'Follow',    url:'' },   // paste your Twitter/X profile link
-  { id:'telegram',  n:'Telegram channel', act:'Join',      url:'' },   // paste your Telegram channel link
-  { id:'tggroup',   n:'Telegram group',   act:'Join',      url:officialGroupLink },
-  { id:'support',   n:'Support group',    act:'Join',      url:supportLink }
+  { id:'tggroup',   n:'Telegram group',         act:'Join',      url:officialGroupLink },
+  { id:'support',   n:'Telegram support group', act:'Join',      url:supportLink },
+  { id:'instagram', n:'Instagram',              act:'Follow',    url:'https://www.instagram.com/sutra_token_12?mdxt=N3R6N3BqeDZ1amE2' },
+  { id:'facebook',  n:'Facebook',               act:'Follow',    url:'https://www.facebook.com/share/1CVB3s3qZm/' },
+  { id:'twitter',   n:'Twitter / X',            act:'Follow',    url:'' },   // Coming soon: paste your Twitter/X link
+  { id:'youtube',   n:'YouTube',                act:'Subscribe', url:'' },   // Coming soon: paste your YouTube channel link
+  { id:'telegram',  n:'Telegram channel',       act:'Join',      url:'' }    // Coming soon: paste your Telegram channel link
 ];
 
 const TOTAL_SUPPLY = 2e12, DAY = 864e5, BOOST_MS = 144e5, BASE = 2000/86400;
@@ -263,7 +279,7 @@ let globalMined=0, globalUsers=0, onlineUsers=0, tick=0;
 
 const snapshot = () => ({balance, pending, miningStart, boostLevel, boostEnd, lastCalc, totalSessions, referralCount, adIndex, activity, referredBy, claimedSessions, dailyStreak, lastDailyDay, boostDay, boostUses, claims, totalEarned, socialDone, tapDay, fuel, tapMult, refLevelPaid, refSeen, notifs, settings, badgesSeen, milestonePaid, refHist, ciDay, ciStreak, chDay, chProg, chDone, dayHist, histFirst, alertMark, refPaid, refQSent, refFriendEarn});
 async function saveNow(extra={}){ const u=getUserId(); if(!loaded||!u) return; await window.saveUserData(u,{...snapshot(),...extra}); pushLeaderboardRow(); }
-function log(m){ activity.unshift({m, t:new Date().toLocaleString()}); activity.length=Math.min(activity.length,50); renderActivity(); }
+function log(m){ activity.unshift({m, t:new Date().toLocaleString()}); activity.length=Math.min(activity.length,50); histEvent(m); renderActivity(); }
 const CLAIM_LABEL={mining:"⛏️ Mining claimed",gift:"🎁 Daily gift claimed",video:"🎬 Video reward",social:"🔗 Social task",streak:"🔥 Streak bonus",checkin:"📅 Daily check-in",challenge:"🎯 Daily challenge",milestone:"🎯 Referral milestone",referral:"🤝 Referral level reward"};
 function addClaim(type, amt){ totalEarned+=Number(amt)||0; if(type!=='mining') histAdd(dayNum(),'o',Number(amt)||0); claims.unshift({type, amt:Number(amt), t:Date.now()}); claims.length=Math.min(claims.length,100); renderClaims(); }
 function renderClaims(){
@@ -335,7 +351,7 @@ function showAuth(step, closable){
   authStep(step); switchTab('profile');
 }
 function hideAuth(){ $('authBox').style.display='none'; $('accountCard').style.display='block'; }
-function authStep(st){ ['Create','Sent','Login'].forEach(n=>$('st'+n).style.display = n.toLowerCase()===st?'block':'none'); }
+function authStep(st){ ['Create','Sent','Login','Forgot'].forEach(n=>$('st'+n).style.display = n.toLowerCase()===st?'block':'none'); }
 function genUserId(){
   const r=()=>crypto.getRandomValues(new Uint32Array(1))[0], len=8+(r()%3);
   let id=String(1+r()%9); while(id.length<len) id+=r()%10;
@@ -358,6 +374,32 @@ async function verifyAccount(){
     $('lUserId').value=id; $('lEmail').value=email; authStep('sent');
   }catch(e){ err.innerText = e.code==='auth/email-already-in-use' ? 'This email is already registered. Log in instead.' : e.message; }
   finally{ b.disabled=false; b.innerText='Verify account'; }
+}
+// ===== forgot password: email → 2s check → one-time security code → reset link emailed =====
+// The code is a fresh random 6-digit number each time and only confirms a person is on this screen (blocks scripts from
+// spamming reset emails). Identity is proven by the reset link that goes to the email's real owner.
+let fgEmail='', fgCode='', fgTries=0;
+async function forgotSubmit(){
+  const err=$('fErr'), b=$('fBtn'), email=$('fEmail').value.trim(); err.innerText='';
+  if(!/^\S+@\S+\.\S+$/.test(email)){ err.innerText='Enter a valid email.'; return; }
+  b.disabled=true; b.innerText='Please wait...';
+  await new Promise(r=>setTimeout(r,2000));
+  fgEmail=email; fgTries=0; fgCode=String(crypto.getRandomValues(new Uint32Array(1))[0]%900000+100000);
+  $('codeShow').innerText=fgCode; $('codeIn').value=''; $('codeErr').innerText=''; $('codePop').style.display='flex';
+  b.disabled=false; b.innerText='Submit';
+}
+function forgotCancel(){ fgCode=''; $('codePop').style.display='none'; }
+async function forgotConfirm(){
+  const v=$('codeIn').value.trim(), b=$('codeBtn');
+  if(!fgCode){ forgotCancel(); return; }
+  if(v!==fgCode){ if(++fgTries>=3){ forgotCancel(); $('fErr').innerText='Too many wrong attempts. Please submit again.'; return; } $('codeErr').innerText='Code does not match.'; return; }
+  b.disabled=true;
+  try{ await window.sendReset(fgEmail); }
+  catch(e){
+    if(e.code!=='auth/user-not-found'){ $('codeErr').innerText=e.code==='auth/too-many-requests'?'Too many requests. Try again later.':'Could not send the email. Please try again.'; b.disabled=false; return; }
+  }
+  b.disabled=false; forgotCancel(); authStep('login');
+  showSuccess('Check your email','If this email is registered, a password reset link has been sent.');
 }
 async function doLogin(){
   const err=$('lErr'), b=$('loginBtn'), id=$('lUserId').value.trim(), email=$('lEmail').value.trim(), pw=$('lPass').value;
@@ -439,7 +481,7 @@ async function dialInner(){
   if(!getUserId()){ showToast(window.linkError?'Could not connect — see Profile for details':'Please log in from the Profile tab first.','error'); switchTab('profile'); return; }
   const st=mState();
   if(st==='done'){
-    try{ await playAd(); }catch(e){ return; }
+    try{ await playAd('claim'); }catch(e){ return; }
     if(mState()!=='done') return;
     settle(); const claimed=pending; balance+=pending; claimedSessions++; log(`✅ Claimed ${claimed.toFixed(3)} SUTRA`); addClaim('mining',claimed); pending=0; miningStart=0; boostLevel=0; boostEnd=0;
     await saveNow(); render(); showSuccess(`${claimed.toFixed(3)} SUTRA added to your balance`);
@@ -447,7 +489,7 @@ async function dialInner(){
   }
   if(st!=='idle') return;
   if(globalMined>=TOTAL_SUPPLY){ showToast("Total supply has been fully mined.","error"); return; }
-  try{ await playAd(); }catch(e){ return; }
+  try{ await playAd('start'); }catch(e){ return; }
   const ts=Date.now(); let r;
   try{ r=await window.tryStartSession(getUserId(), ts); }catch(e){ showToast("Could not start. Check your connection.","error"); return; }
   if(!r.ok){
@@ -464,7 +506,7 @@ async function boosterInner(n){
   if(mState()!=='mining' || boostLevel!==n-1) return;
   if(boostDay!==dayNum()){ boostDay=dayNum(); boostUses=0; }
   if(n===1 && boostUses>=BOOST_DAILY_LIMIT){ showToast(`You can use the booster only ${BOOST_DAILY_LIMIT} times a day. Try again tomorrow.`,'error'); return; }
-  try{ await playAd(); }catch(e){ return; }
+  try{ await playAd('boost'); }catch(e){ return; }
   settle();
   if(mState()!=='mining' || boostLevel!==n-1) return;
   if(n===1){ boostEnd=Date.now()+BOOST_MS; boostUses++; }
@@ -494,7 +536,7 @@ async function tapBoost(){
   if(busy) return; busy=true;
   try{
     if(!loaded||!getUserId()) return; tapRoll(); if(tapMult===2||fuel<=0) return;
-    try{ await playAd(); }catch(e){ return; }
+    try{ await playAd('fuel'); }catch(e){ return; }
     tapMult=2; await saveNow(); render(); showSuccess('2x activated','Each tap now gives 2 SUTRA until your fuel runs out');
   } finally{ busy=false; }
 }
@@ -579,13 +621,18 @@ function renderRefChart(){
 const CHECKIN=[20,30,40,50,70,100,200];
 function renderCheckin(){
   const e=$('ciBox'); if(!e) return; const t=dayNum(), done=ciDay===t, live=ciDay>=t-1?ciStreak:0, cyc=done?((ciStreak-1)%7)+1:(live%7);
-  e.innerHTML=`<div class="gift" style="grid-template-columns:repeat(7,1fr)">`+CHECKIN.map((r,i)=>`<div class="gd ${i<cyc?'done':''} ${!done&&i===cyc?'now':''}">D${i+1}<b>${r}</b></div>`).join("")+`</div><button class="btn" onclick="claimCheckin()" ${done?'disabled':''}>${done?'Checked in today ✓':`Check in · +${CHECKIN[cyc]} SUTRA`}</button>`;
+  e.innerHTML=`<div class="gift" style="grid-template-columns:repeat(7,1fr)">`+CHECKIN.map((r,i)=>`<div class="gd ${i<cyc?'done':''} ${!done&&i===cyc?'now':''}">D${i+1}<b>${r}</b></div>`).join("")+`</div><button class="btn" onclick="claimCheckin()" ${done?'disabled':''}>${done?'Checked in today ✓':`Watch video &amp; check in · +${CHECKIN[cyc]}`}</button>`;
 }
-function claimCheckin(){
-  const t=dayNum(); if(!loaded||!getUserId()||ciDay===t) return;
-  ciStreak=(ciDay===t-1)?ciStreak+1:1; ciDay=t; const r=CHECKIN[(ciStreak-1)%7];
-  balance+=r; addClaim('checkin',r); chAdd('checkin',1); log(`📅 Check-in day ${ciStreak}: +${r} SUTRA`);
-  renderCheckin(); renderChallenges(); render(); saveNow(); showSuccess('Checked in!',`+${r} SUTRA · ${ciStreak}-day streak`);
+async function claimCheckin(){
+  if(busy) return; busy=true;
+  try{
+    if(!loaded||!getUserId()||ciDay===dayNum()) return;
+    try{ await playAd('checkin'); }catch(e){ return; }
+    const t=dayNum(); if(ciDay===t) return;
+    ciStreak=(ciDay===t-1)?ciStreak+1:1; ciDay=t; const r=CHECKIN[(ciStreak-1)%7];
+    balance+=r; addClaim('checkin',r); chAdd('checkin',1); log(`📅 Check-in day ${ciStreak}: +${r} SUTRA`);
+    renderCheckin(); renderChallenges(); render(); saveNow(); showSuccess('Checked in!',`+${r} SUTRA · ${ciStreak}-day streak`);
+  } finally{ busy=false; }
 }
 
 // ===== daily challenges: 3 per day, rotating =====
@@ -597,13 +644,18 @@ function chSet(k,v){ if(!loaded) return; chRoll(); chProg[k]=Math.max(chProg[k]|
 function renderChallenges(){
   const e=$('chList'); if(!e) return; chRoll();
   const h=chToday().map(i=>{ const c=CH_POOL[i], p=Math.min(c.g,chProg[c.k]||0), done=chDone.includes(i), ready=p>=c.g&&!done;
-    return `<div class="ms"><div class="row" style="padding:2px 0"><span>${done?'✅':'🎯'} ${c.t}</span><b>+${c.r}</b></div><div class="bar"><i style="width:${p/c.g*100}%"></i></div><div class="vrow" style="border:0;padding:4px 0"><small>${p} / ${c.g}</small>${done?'<em class="ok">Claimed</em>':ready?`<button class="vbtn" onclick="claimChallenge(${i})">Claim</button>`:''}</div></div>`; }).join("");
+    return `<div class="ms"><div class="row" style="padding:2px 0"><span>${done?'✅':'🎯'} ${c.t}</span><b>+${c.r}</b></div><div class="bar"><i style="width:${p/c.g*100}%"></i></div><div class="vrow" style="border:0;padding:4px 0"><small>${p} / ${c.g}</small>${done?'<em class="ok">Claimed</em>':ready?`<button class="vbtn" onclick="claimChallenge(${i})">Watch &amp; claim</button>`:''}</div></div>`; }).join("");
   if(e.dataset.h!==h){ e.dataset.h=h; e.innerHTML=h; }
 }
-function claimChallenge(i){
-  chRoll(); const c=CH_POOL[i]; if(!c||!chToday().includes(i)||chDone.includes(i)||(chProg[c.k]||0)<c.g) return;
-  chDone.push(i); balance+=c.r; addClaim('challenge',c.r); log(`🎯 Challenge done: ${c.t} (+${c.r})`);
-  renderChallenges(); render(); saveNow(); showSuccess('Challenge complete',`+${c.r} SUTRA`);
+async function claimChallenge(i){
+  if(busy) return; busy=true;
+  try{
+    chRoll(); const c=CH_POOL[i]; if(!c||!chToday().includes(i)||chDone.includes(i)||(chProg[c.k]||0)<c.g) return;
+    try{ await playAd('challenge'); }catch(e){ return; }
+    chRoll(); if(chDone.includes(i)) return;
+    chDone.push(i); balance+=c.r; addClaim('challenge',c.r); log(`🎯 Challenge done: ${c.t} (+${c.r})`);
+    renderChallenges(); render(); saveNow(); showSuccess('Challenge complete',`+${c.r} SUTRA`);
+  } finally{ busy=false; }
 }
 
 // ===== day-by-day history: saved automatically, every day =====
@@ -612,6 +664,11 @@ function histAdd(d,k,v){
   if(!(v>0)) return; const e=dayHist[d]||(dayHist[d]={m:0,o:0}); e[k]+=v; if(histFirst<0) histFirst=d;
   const ks=Object.keys(dayHist).map(Number).sort((a,b)=>a-b); while(ks.length>60) delete dayHist[ks.shift()];
 }
+function histEvent(m){
+  const d=dayNum(), e=dayHist[d]||(dayHist[d]={m:0,o:0}); if(histFirst<0) histFirst=d;
+  (e.ev=e.ev||[]).push({t:Date.now(),m:String(m).slice(0,90)}); if(e.ev.length>25) e.ev.shift();
+  Object.keys(dayHist).forEach(k=>{ if(Number(k)<d-14&&dayHist[k].ev) delete dayHist[k].ev; });
+}
 function histSplit(t0,t1,inc){      // mining earned across midnight is split between the two days
   const tot=t1-t0; if(tot<=0) return;
   for(let d=Math.floor((t0-tzMs())/864e5), end=Math.floor((t1-tzMs())/864e5); d<=end; d++){
@@ -619,10 +676,11 @@ function histSplit(t0,t1,inc){      // mining earned across midnight is split be
 }
 function renderDayHist(){
   const el=$('dayHist'); if(!el) return; const ks=Object.keys(dayHist).map(Number).sort((a,b)=>b-a), t=dayNum();
-  if(!ks.length){ el.innerHTML='<div class="item">Your daily mining history will appear here.</div>'; return; }
+  if(!ks.length){ el.innerHTML='<div class="item">Your daily history will appear here.</div>'; return; }
   const f=n=>n.toLocaleString(undefined,{minimumFractionDigits:3,maximumFractionDigits:3});
   el.innerHTML=ks.map(d=>{ const e=dayHist[d], dt=new Date(dayStartMs(d)).toLocaleDateString(undefined,{day:'numeric',month:'short',year:'numeric'});
-    return `<div class="item"><div class="row" style="padding:0"><b style="font-size:13px">Day ${d-histFirst+1}${d===t?' · Today (live)':''}</b><b class="ok" style="font-size:14px">+${f(e.m+e.o)}</b></div>${esc(dt)} · ⛏️ ${f(e.m)} mining · 🎁 ${f(e.o)} rewards &amp; taps</div>`; }).join("");
+    const ev=(e.ev||[]).slice().reverse().map(x=>`<div style="padding:3px 0 3px 10px;border-left:2px solid var(--line);margin-top:4px">${esc(new Date(x.t).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}))} · ${esc(x.m)}</div>`).join("");
+    return `<div class="item"><div class="row" style="padding:0"><b style="font-size:13px">Day ${d-histFirst+1}${d===t?' · Today (live)':''}</b><b class="ok" style="font-size:14px">+${f((e.m||0)+(e.o||0))}</b></div>${esc(dt)} · ⛏️ ${f(e.m||0)} mining · 🎁 ${f(e.o||0)} rewards &amp; taps${ev}</div>`; }).join("");
 }
 function openHistory(){ renderDayHist(); renderActivity(); openSheet('actModal'); }
 
@@ -666,15 +724,15 @@ async function loadRefBoard(){
 document.addEventListener('click',e=>{ if(e.target.closest('.btn,.tab,.bst,.vbtn,.core')){ haptic('tick'); sfx('click'); } });
 
 // ===== video ads =====
-function playAd(custom){
+function playAd(place){
   return new Promise((resolve,reject)=>{
-    const i=adIndex%AD_SEQUENCE.length, secs=custom?custom.secs:AD_SEQUENCE[i], url=custom?custom.url:AD_VIDEOS[i];
+    const i=adIndex%AD_SEQUENCE.length, secs=AD_SEQUENCE[i], url=(place&&AD_SLOTS[place])||AD_VIDEOS[i];
     const box=$('adBox'), v=$('adVideo'); let left=secs, done=false;
     v.style.display=url?'block':'none'; $('adPh').style.display=url?'none':'block';
     if(url){ v.src=url; v.play().catch(()=>{}); }
     box.style.display='flex';
     $('adClose').innerText="Cancel"; $('adBar').style.width="0";
-    const finish=(ok)=>{ clearInterval(t); v.pause(); v.removeAttribute('src'); box.style.display='none'; $('adClose').onclick=null; if(ok){ if(!custom) adIndex++; resolve(); } else reject(); };
+    const finish=(ok)=>{ clearInterval(t); v.pause(); v.removeAttribute('src'); box.style.display='none'; $('adClose').onclick=null; if(ok){ adIndex++; resolve(); } else reject(); };
     const paint=()=>{ $('adText').innerText=`Reward in ${left}s`; $('adBar').style.width=((secs-left)/secs*100)+'%'; };
     paint();
     const t=setInterval(()=>{ if(document.hidden) return; left--; paint(); if(left<=0){ done=true; $('adText').innerText="Done"; $('adClose').innerText="Get reward"; clearInterval(t); } },1000);
@@ -696,7 +754,7 @@ async function giftInner(){
   if(!getUserId()){ showToast(window.linkError?'Could not connect — see Profile for details':'Please log in from the Profile tab first.','error'); switchTab('profile'); return; }
   const day=nextGiftDay(); if(!day){ showToast("Already claimed today. Come back tomorrow."); return; }
   const streakBroken = day===1 && dailyStreak>1;
-  try{ await playAd(); }catch(e){ return; }
+  try{ await playAd('gift'); }catch(e){ return; }
   if(!nextGiftDay()) return;
   if(streakBroken) log(`⏳ Daily gift streak expired after Day ${dailyStreak} — restarting from Day 1`);
   balance+=day*50; dailyStreak=day; lastDailyDay=dayNum(); log(`🎁 Day ${day} gift claimed (${day*50} SUTRA)`); addClaim('gift',day*50); chAdd('gift',1);
@@ -708,25 +766,33 @@ function renderSocials(){
     if(socialDone.includes(s.id)) return head+`<em class="ok">✓ Claimed</em></div>`;
     if(!s.url) return head+`<span class="soonpill">Coming soon</span></div>`;
     if(!o) return head+`<button class="vbtn" onclick="openSocial('${s.id}')">${s.act}</button></div>`;
-    if(now-o<SOCIAL_WAIT) return head+`<button class="vbtn" disabled>Checking…</button></div>`;
-    return head+`<button class="vbtn" onclick="claimSocial('${s.id}')">Claim +${SOCIAL_REWARD}</button></div>`;
+    if(!socialReady(s.id)) return head+`<button class="vbtn" disabled>Checking…</button></div>`;
+    return head+`<button class="vbtn" onclick="claimSocial('${s.id}')">Watch &amp; claim +${SOCIAL_REWARD}</button></div>`;
   }).join("");
   ['vidList','socialList'].forEach(i=>{ if($(i)) $(i).innerHTML=h; });
 }
+// Claim unlocks when the person comes back to the app after opening the link (min 4s), or after 8s at the latest
+const socialBack={};
+function socialReady(id){ const o=socialOpen[id]; if(!o) return false; const e=Date.now()-o; return e>=SOCIAL_WAIT||(!!socialBack[id]&&e>=4000); }
+document.addEventListener('visibilitychange',()=>{ if(document.hidden) return; Object.keys(socialOpen).forEach(id=>{ if(!socialBack[id]) socialBack[id]=Date.now(); }); renderSocials(); });
 function openSocial(id){
   const s=SOCIALS.find(x=>x.id===id); if(!s||!s.url||socialDone.includes(id)) return;
-  if(tg?.openTelegramLink && /t\.me/.test(s.url)) tg.openTelegramLink(s.url); else window.open(s.url,'_blank');
-  socialOpen[id]=Date.now(); renderSocials(); setTimeout(renderSocials,SOCIAL_WAIT+150);
+  if(tg?.openTelegramLink && /t\.me/.test(s.url)) tg.openTelegramLink(s.url); else if(tg?.openLink) tg.openLink(s.url); else window.open(s.url,'_blank');
+  socialOpen[id]=Date.now(); delete socialBack[id]; renderSocials(); setTimeout(renderSocials,4150); setTimeout(renderSocials,SOCIAL_WAIT+150);
 }
 async function claimSocial(id){
   if(busy) return; busy=true;
   try{
     if(!loaded){ showToast('Loading… please wait'); return; }
     const s=SOCIALS.find(x=>x.id===id); if(!s||!s.url||socialDone.includes(id)) return;
-    if(!socialOpen[id]||Date.now()-socialOpen[id]<SOCIAL_WAIT){ showToast(`Please ${s.act.toLowerCase()} first, then claim.`,'error'); return; }
-    try{ await playAd(); }catch(e){ return; }
+    if(!socialReady(id)){ showToast(`Please ${s.act.toLowerCase()} first, then claim.`,'error'); return; }
+    const uid=getUserId();
+    try{ if(await window.socialClaimed(uid,id)){ if(!socialDone.includes(id)) socialDone.push(id); await saveNow(); renderSocials(); showToast('This reward was already claimed.','error'); return; } }catch(e){ showToast('Could not check your claim. Check your connection.','error'); return; }
+    try{ await playAd('social'); }catch(e){ return; }
     if(socialDone.includes(id)) return;
-    balance+=SOCIAL_REWARD; socialDone.push(id); log(`🔗 ${s.n} reward (${SOCIAL_REWARD} SUTRA)`); addClaim('social',SOCIAL_REWARD);
+    try{ await window.socialClaim(uid,id); }
+    catch(e){ if(e.code==='permission-denied'){ if(!socialDone.includes(id)) socialDone.push(id); await saveNow(); renderSocials(); showToast('This reward was already claimed.','error'); } else showToast('Could not claim. Check your connection.','error'); return; }
+    balance+=SOCIAL_REWARD; socialDone.push(id); log(`🔗 Joined ${s.n} · +${SOCIAL_REWARD} SUTRA`); addClaim('social',SOCIAL_REWARD);
     await saveNow(); renderSocials(); render(); showSuccess(`${SOCIAL_REWARD} SUTRA added`);
   } finally{ busy=false; }
 }
@@ -864,7 +930,7 @@ window.bootApp = async function(au){
   window.addEventListener('pagehide',()=>{ settle(); saveNow({online:false,lastHeartbeat:0}); });
 };
 
-Object.assign(window,{ openWeekly, openHistory, openSocial, claimCheckin, claimChallenge, saveSettings, claimSocial, tapBoost, authStep, claimDailyReward, closeSheet, dialAction, doLogin, genUserId, handleBooster, hideAuth, hideSuccess,
+Object.assign(window,{ forgotSubmit, forgotConfirm, forgotCancel, openWeekly, openHistory, openSocial, claimCheckin, claimChallenge, saveSettings, claimSocial, tapBoost, authStep, claimDailyReward, closeSheet, dialAction, doLogin, genUserId, handleBooster, hideAuth, hideSuccess,
   openSheet, openSupport, savePhoto, saveProfile, switchTab, verifyAccount, showAuth, logout });
 
 window.__appLoaded = true;
