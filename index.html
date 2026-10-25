@@ -356,9 +356,18 @@ body.saver *{animation:none!important;transition:none!important;backdrop-filter:
         <label>User ID</label><input type="text" id="lUserId" inputmode="numeric" maxlength="10">
         <label>Email</label><input type="email" id="lEmail" autocomplete="email">
         <label>Password</label><input type="password" id="lPass" autocomplete="current-password">
+        <div style="text-align:right;margin:-4px 0 8px"><a href="#" onclick="authStep('forgot');return false" style="font-size:12px;color:var(--saffron);font-weight:700;text-decoration:none">Forgot password?</a></div>
         <div class="err" id="lErr"></div>
         <button class="btn" id="loginBtn" onclick="doLogin()">Log in</button>
         <button class="btn alt" onclick="authStep('create')">Create account</button>
+      </div>
+      <div id="stForgot" style="display:none">
+        <h3>Reset password</h3>
+        <p>Enter the email you registered with. We will show a one-time security code, then send a password reset link to that email.</p>
+        <label>Email</label><input type="email" id="fEmail" autocomplete="email">
+        <div class="err" id="fErr"></div>
+        <button class="btn" id="fBtn" onclick="forgotSubmit()">Submit</button>
+        <button class="btn alt" onclick="authStep('login')">Back to log in</button>
       </div>
       <button class="btn alt" id="authClose" style="display:none" onclick="hideAuth()">Cancel</button>
     </div>
@@ -376,6 +385,13 @@ body.saver *{animation:none!important;transition:none!important;backdrop-filter:
 </div>
 
 <div class="toast" id="toastBox"></div>
+<div id="codePop" style="display:none;position:fixed;inset:0;z-index:700;background:rgba(0,0,0,.94);align-items:center;justify-content:center;flex-direction:column;padding:24px;text-align:center">
+  <div id="codeShow" style="font-size:46px;font-weight:900;letter-spacing:10px;padding:22px 20px 22px 30px;color:#fff;background:#000;border:1px solid #2b2b2b;border-radius:20px;box-shadow:0 0 40px rgba(255,255,255,.06)">000000</div>
+  <input type="text" id="codeIn" inputmode="numeric" maxlength="6" placeholder="Type the code above" autocomplete="one-time-code" style="margin-top:20px;max-width:260px;text-align:center;letter-spacing:6px">
+  <div class="err" id="codeErr"></div>
+  <button class="btn" id="codeBtn" onclick="forgotConfirm()" style="max-width:260px">Continue</button>
+  <button class="btn alt" onclick="forgotCancel()" style="max-width:260px">Cancel</button>
+</div>
 <div class="ov" id="successOv" onclick="hideSuccess()">
   <div class="ovbox">
     <div class="spinwrap"><svg class="spin" viewBox="0 0 60 60"><circle cx="30" cy="30" r="24"/></svg>
@@ -404,7 +420,7 @@ body.saver *{animation:none!important;transition:none!important;backdrop-filter:
 <div class="modal" id="claimModal"><div class="sheet"><h3>Claim history</h3><div id="claimList"></div><button class="btn alt" onclick="closeSheet('claimModal')">Close</button></div></div>
 <div class="modal" id="wkModal"><div class="sheet"><h3>📈 Weekly mining report</h3><div id="wkBody"></div><button class="btn alt" onclick="closeSheet('wkModal')">Close</button></div></div>
 <div class="modal" id="setModal"><div class="sheet"><h3>⚙️ Settings</h3><div class="row" style="align-items:center"><span>🔊 Sound effects</span><label class="sw"><input type="checkbox" id="setSound" onchange="saveSettings()"><i></i></label></div><div class="row" style="align-items:center"><span>📳 Vibration &amp; haptics</span><label class="sw"><input type="checkbox" id="setVib" onchange="saveSettings()"><i></i></label></div><div class="row" style="align-items:center"><span>Haptic intensity</span><select id="setStr" onchange="saveSettings()"><option value="off">Off</option><option value="light">Light</option><option value="medium">Medium</option><option value="strong">Strong</option></select></div><div class="row" style="align-items:center"><span>🔔 Referral notifications</span><label class="sw"><input type="checkbox" id="setNotif" onchange="saveSettings()"><i></i></label></div><div class="row" style="align-items:center"><span>⛏️ Mining alerts</span><label class="sw"><input type="checkbox" id="setMine" onchange="saveSettings()"><i></i></label></div><div class="row" style="align-items:center"><span>🔋 Battery saver</span><select id="setSaver" onchange="saveSettings()"><option value="auto">Auto (low battery)</option><option value="on">Always on</option><option value="off">Off</option></select></div><button class="btn alt" onclick="closeSheet('setModal')">Close</button></div></div>
-<div class="modal" id="actModal"><div class="sheet"><h3>📅 Day-by-day history</h3><div id="dayHist"></div><h3 style="margin-top:14px">Recent activity</h3><div id="activityList"></div><button class="btn alt" onclick="closeSheet('actModal')">Close</button></div></div>
+<div class="modal" id="actModal"><div class="sheet"><h3>📅 Day-by-day history</h3><div id="dayHist"></div><div id="activityList" style="display:none"></div><button class="btn alt" onclick="closeSheet('actModal')">Close</button></div></div>
 <div class="modal" id="annModal"><div class="sheet"><h3>Notifications</h3><div id="notifList"></div><h3 style="margin-top:14px">Announcements</h3><div id="announcementList">Loading...</div><button class="btn alt" onclick="closeSheet('annModal')">Close</button></div></div>
 
 <script>
