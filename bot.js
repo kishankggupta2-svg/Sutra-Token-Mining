@@ -1,88 +1,68 @@
-// =====================================================================
-//  Sutra Token - Telegram bot (the message + buttons shown on /start)
-//  Uses "telegraf" (a newer, actively maintained library) instead of the
-//  older node-telegram-bot-api, to avoid its outdated-dependency warnings.
-//  This is a SEPARATE, standalone program. It does NOT touch, load, or
-//  serve your Mining App files (index.html / app.js) in any way.
-// =====================================================================
-
+// Sutra Token Mining: Telegram bot
+// Environment variables (set them on your host, never write the token in this file):
+//   BOT_TOKEN   token from @BotFather
+//   WEBAPP_URL  public https link of your mining app (the page that serves index.html)
 const http = require('http');
-const { Telegraf } = require('telegraf');
+const { Telegraf, Markup } = require('telegraf');
 
-// ---- EDIT THESE --------------------------------------------------------
-const BOT_TOKEN      = process.env.TELEGRAM_BOT_TOKEN || "";           // from @BotFather (set the real value in Render -> Environment)
-const BOT_USERNAME   = "SutraToken_bot";                               // your bot username, no @
-const APP_SHORT_NAME = "";                                             // optional: Mini App short name from BotFather /newapp. Leave "" if you use "Menu Button" instead
-const GROUP_LINK     = "https://t.me/SutraTokenOfficialgroup";         // your official Telegram group
-const SUPPORT_LINK   = "https://t.me/SutraTokenMiningOfficial";        // your official support chat
-// -------------------------------------------------------------------------
+const BOT_TOKEN = process.env.BOT_TOKEN;
+const WEBAPP_URL = process.env.WEBAPP_URL;
+const BOT_USERNAME = 'SutraToken_bot';
+const GROUP_LINK = 'https://t.me/SutraTokenOfficialgroup';
+const SUPPORT_LINK = 'https://t.me/SutraTokenMiningOfficial';
 
-if (!BOT_TOKEN) {
-  console.error("Missing TELEGRAM_BOT_TOKEN. Set it in Render -> Environment.");
+if (!BOT_TOKEN || !WEBAPP_URL) {
+  console.error('Missing BOT_TOKEN or WEBAPP_URL environment variable.');
   process.exit(1);
 }
 
-// The link that opens the Mining App directly (carries a referral code when someone was invited)
-const appLink = (ref) => {
-  const start = ref ? `ref_${ref}` : "app";
-  return APP_SHORT_NAME
-    ? `https://t.me/${BOT_USERNAME}/${APP_SHORT_NAME}?startapp=${start}`
-    : `https://t.me/${BOT_USERNAME}?startapp=${start}`;
-};
+const WELCOME = `⛏️ <b>Welcome to Sutra Token Mining!</b>
 
-const WELCOME_TEXT =
-`⛏️ *Welcome to Sutra Token Mining\\!*
+🔹 <b>24-hour mining, 100% free:</b> earn 2,000 $SUTRA every session
+🔹 <b>Free boosters 2x → 3x → 4x:</b> up to +2,000 extra per 4-hour boost, 2 boosts a day
+🔹 <b>Daily rewards:</b> a 30-day gift calendar (Day 1 = 50 up to Day 30 = 1,500) + daily check-in
+🔹 <b>Daily challenges:</b> 3 new challenges every day
+🔹 <b>Tap &amp; earn:</b> 500 Fuel every day, with Fuel 2x and combos
+🔹 <b>Refer &amp; earn:</b> 500 $SUTRA for every friend who starts mining, plus 20 referral levels, badges and milestone bonuses
+🔹 <b>Social claims:</b> join our community and claim 100 $SUTRA per task, once
+🔹 <b>Fast support:</b> our Telegram support group
+🔹 <b>SST coin:</b> planned conversion, 1,000 $SUTRA = 1 SST
+🔹 <b>Withdrawal:</b> coming soon
 
-🔹 24\\-Hour Mining — Earn 2,000 \\$SUTRA per session
-🔹 Boosts — 2x → 3x → 4x for 4 hours \\(up to \\+2,000 extra\\)
-🔹 Daily Gift Rewards — Claim free tokens every day
-🔹 Video Claim Rewards — Watch & earn bonus \\$SUTRA
-🔹 Refer & Earn — Invite friends, get reward tokens
-🔹 Withdrawal — Coming Soon
+📢 <a href="${GROUP_LINK}">Official Telegram group</a>
+💬 <a href="${SUPPORT_LINK}">Official support</a>
+📱 App: coming soon on Play Store
 
-🚀 Limited token supply\\. Mine early, earn more\\!
+🛠 If you face any issue, we will try our best to fix it. Please be patient.
 
-Tap below to start mining\\!`;
+⚠️ <b>Warning:</b> this is a long-term, high-risk project. No guaranteed value, listing, withdrawal date or profit. Never quit your job, business or studies for it, and never put in money you cannot afford to lose.
+
+Tap below to start mining! 🚀`;
 
 const bot = new Telegraf(BOT_TOKEN);
 
-function welcomeKeyboard(ref) {
-  return {
-    inline_keyboard: [
-      [{ text: "⛏️ Sutra Mining Open", url: appLink(ref) }],
-      [{ text: "📢 Telegram Group", url: GROUP_LINK }],
-      [
-        { text: "💬 Telegram Support", url: SUPPORT_LINK },
-        { text: "📱 App Coming Soon", callback_data: "app_soon" }
-      ]
-    ]
-  };
-}
-
-// /start  and  /start ref_XXXXXXXX  (from a shared referral link)
-bot.start((ctx) => {
-  const param = (ctx.startPayload || "").trim();      // telegraf auto-parses the text after /start
-  const ref = param.startsWith("ref_") ? param.slice(4) : "";
-  ctx.reply(WELCOME_TEXT, {
-    parse_mode: "MarkdownV2",
-    disable_web_page_preview: true,
-    reply_markup: welcomeKeyboard(ref)
-  }).catch(e => console.error("reply failed:", e.message));
+bot.start(async (ctx) => {
+  // A friend who came through a referral link (…?start=ref_123) is passed on to the app as ?ref=ref_123
+  const payload = (ctx.startPayload || '').trim();
+  const url = new URL(WEBAPP_URL);
+  if (/^ref_\d{1,20}$/.test(payload)) url.searchParams.set('ref', payload);
+  const open = Markup.button.webApp('⛏️ Open Sutra Mining', url.toString());
+  await ctx.replyWithHTML(WELCOME, {
+    link_preview_options: { is_disabled: true },
+    ...Markup.inlineKeyboard([
+      [open],
+      [Markup.button.url('📢 Telegram Group', GROUP_LINK)],
+      [Markup.button.url('💬 Telegram Support', SUPPORT_LINK), Markup.button.callback('📱 App Coming Soon', 'soon')]
+    ])
+  });
 });
 
-// "App Coming Soon" button - just shows a small popup, doesn't open anything (app isn't live yet)
-bot.action('app_soon', (ctx) => {
-  ctx.answerCbQuery("📱 The Sutra Token app is coming soon on the Play Store!", { show_alert: true })
-    .catch(e => console.error("answerCbQuery failed:", e.message));
-});
+bot.action('soon', (ctx) => ctx.answerCbQuery('The Play Store app is coming soon 📱', { show_alert: true }));
+bot.catch((err) => console.error('Bot error:', err));
 
-bot.catch((err) => console.error("Bot error:", err.message));
+// tiny health-check server so hosts that expect an open port (for example Render web services) keep the bot running
+http.createServer((_, res) => { res.writeHead(200); res.end('ok'); }).listen(process.env.PORT || 3000);
 
-bot.launch().then(() => console.log("Sutra Token bot started (long polling)..."));
+bot.launch().then(() => console.log('Sutra Token bot is running'));
 process.once('SIGINT', () => bot.stop('SIGINT'));
 process.once('SIGTERM', () => bot.stop('SIGTERM'));
-
-// ---- tiny web server so Render's health check sees the service as "up" ----
-const PORT = process.env.PORT || 3000;
-http.createServer((req, res) => { res.writeHead(200); res.end('Sutra Token bot is running.'); })
-    .listen(PORT, () => console.log(`Health check server listening on ${PORT}`));
