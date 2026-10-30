@@ -1,8 +1,16 @@
 {
   "name": "sutra-token-bot",
   "version": "1.0.0",
-  "private": true,
-  "type": "commonjs",
-  "scripts": { "start": "node bot.js" },
-  "dependencies": { "telegraf": "^4.16.3" }
+  "description": "Telegram bot for Sutra Token Mining",
+  "main": "bot.js",
+  "scripts": {
+    "start": "node bot.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "telegraf": "^4.16.3"
+  }
 }
+
