@@ -11,8 +11,15 @@ const BOT_USERNAME = 'SutraToken_bot';
 const GROUP_LINK = 'https://t.me/SutraTokenOfficialgroup';
 const SUPPORT_LINK = 'https://t.me/SutraTokenMiningOfficial';
 
-if (!BOT_TOKEN || !WEBAPP_URL) {
-  console.error('Missing BOT_TOKEN or WEBAPP_URL environment variable.');
+const missing = ['BOT_TOKEN', 'WEBAPP_URL'].filter((k) => !process.env[k]);
+if (missing.length) {
+  console.error('❌ Missing environment variable(s): ' + missing.join(', ') + '. Add them in your host settings (Render → Environment) and redeploy.');
+  process.exit(1);
+}
+try {
+  if (new URL(WEBAPP_URL).protocol !== 'https:') throw new Error('not https');
+} catch (e) {
+  console.error('❌ WEBAPP_URL must be a full https link, for example https://your-app.onrender.com');
   process.exit(1);
 }
 
@@ -63,6 +70,22 @@ bot.catch((err) => console.error('Bot error:', err));
 // tiny health-check server so hosts that expect an open port (for example Render web services) keep the bot running
 http.createServer((_, res) => { res.writeHead(200); res.end('ok'); }).listen(process.env.PORT || 3000);
 
-bot.launch().then(() => console.log('Sutra Token bot is running'));
+process.on('unhandledRejection', (e) => console.error('Unhandled error:', e));
+(async () => {
+  try {
+    const me = await bot.telegram.getMe();
+    console.log('✅ Token accepted: @' + me.username);
+  } catch (e) {
+    console.error('❌ Telegram rejected BOT_TOKEN. Copy the token again from @BotFather (no spaces, no quotes), or create a new one with /revoke.');
+    process.exit(1);
+  }
+  bot.launch().catch((err) => {
+    const m = String((err && err.message) || err);
+    if (/409/.test(m)) console.error('❌ Another copy of this bot is already running (409 Conflict). Stop the old bot or old deploy, then restart this one.');
+    else console.error('❌ Bot failed to start:', m);
+    process.exit(1);
+  });
+  console.log('✅ Sutra Token bot is running');
+})();
 process.once('SIGINT', () => bot.stop('SIGINT'));
 process.once('SIGTERM', () => bot.stop('SIGTERM'));
