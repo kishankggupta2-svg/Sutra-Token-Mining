@@ -285,11 +285,14 @@ body.saver *{animation:none!important;transition:none!important;backdrop-filter:
       <div class="row">Current level<b id="refLvl">0 / 20</b></div>
       <div class="bar"><i id="refLvlBar"></i></div>
       <div class="meterCap" id="refLvlTxt"></div>
+      <button class="btn" id="refClaimBtn" style="display:none" onclick="claimRefLevel()"></button>
+      <div class="row">Total earned from referrals<b id="refEarnTotal">0 SUTRA</b></div>
       <div class="row">Rewarded friends<b id="refCount2">0</b></div>
       <div class="row">Joined · not mining yet<b id="refWaiting">0</b></div>
       <button class="btn" onclick="shareApp()">Share</button>
       <button class="btn alt" onclick="copyRef()">Copy link</button></div>
-    <div class="card"><h3>📈 Referral stats</h3><div class="row">Friends invited<b id="rsTotal">0</b></div><div class="row">Qualified (2 sessions)<b id="rsQual">0</b></div><div class="row">Waiting<b id="rsWait">0</b></div><div class="row">Conversion<b id="rsConv">0%</b></div><div class="row">Earned from referrals<b id="rsEarn" style="color:var(--saffron)">0 SUTRA</b></div></div>
+    <div class="card"><h3>👥 Friends who joined</h3><div id="refJoinList"><div class="item">Loading…</div></div></div>
+    <div class="card"><h3>📈 Referral stats</h3><div class="row">Friends invited<b id="rsTotal">0</b></div><div class="row">Started mining<b id="rsQual">0</b></div><div class="row">Waiting<b id="rsWait">0</b></div><div class="row">Conversion<b id="rsConv">0%</b></div><div class="row">Earned from referrals<b id="rsEarn" style="color:var(--saffron)">0 SUTRA</b></div></div>
     <div class="card"><h3>🎖️ Referral badges</h3><div class="bgrid" id="badgeGrid"></div></div>
     <div class="card"><h3>🎯 Referral milestones</h3><div id="msList"></div></div>
     <div class="card"><h3>📊 Referral progress · last 14 days</h3><div id="refChart"></div></div>
