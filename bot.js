@@ -52,7 +52,7 @@ bot.start(async (ctx) => {
   // A friend who came through a referral link (…?start=ref_123) is passed on to the app as ?ref=ref_123
   const payload = (ctx.startPayload || '').trim();
   const url = new URL(WEBAPP_URL);
-  if (/^ref_\d{1,20}$/.test(payload)) url.searchParams.set('ref', payload);
+  if (/^ref_[A-Za-z0-9_-]{1,64}$/.test(payload)) url.searchParams.set('ref', payload);
   const open = Markup.button.webApp('⛏️ Open Sutra Mining', url.toString());
   await ctx.replyWithHTML(WELCOME, {
     link_preview_options: { is_disabled: true },
