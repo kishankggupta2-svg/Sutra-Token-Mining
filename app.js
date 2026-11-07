@@ -156,7 +156,7 @@ onAuthStateChanged(auth, async (u) => {
 // ============================================================
 const officialGroupLink = "https://t.me/SutraTokenOfficialgroup"; window.officialGroupLink = officialGroupLink;
 const BOT_USERNAME = "SutraToken_bot";
-const APP_SHORT_NAME = "";
+const APP_SHORT_NAME = "";   // optional: the short name from BotFather /newapp. With it the invite link opens the app directly, with no bot needed.
 let busy=false;
 const supportLink = "https://t.me/SutraTokenMiningOfficial";
 
@@ -826,7 +826,7 @@ async function copyText(t){
   $('shareTextBox').value=t; openSheet('shareModal');
 }
 function setupShare(){
-  const refLink = `https://t.me/${BOT_USERNAME}?start=ref_${getUserId()}`;
+  const refLink = APP_SHORT_NAME ? `https://t.me/${BOT_USERNAME}/${APP_SHORT_NAME}?startapp=ref_${getUserId()}` : `https://t.me/${BOT_USERNAME}?start=ref_${getUserId()}`;
   const msg=`🚀 Mine $SUTRA free! Join with my link and start earning.`;
   const text=`${msg}\n${refLink}`+(PLAY_STORE_LINK?`\n\nGet the app: ${PLAY_STORE_LINK}`:"");
   window.shareApp=async()=>{
@@ -875,6 +875,18 @@ async function claimRefLevel(){
     await saveNow(); renderRef(); render(); showSuccess(`Level ${n} reward claimed`,`+${amt.toLocaleString()} SUTRA`);
   } finally{ busy=false; }
 }
+let refSync='', refLinked=false, refLinkErr='';
+function paintRefSync(){
+  const el=$('refSyncTxt'); if(!el) return;
+  const a=referredBy?(refLinked?'🤝 You joined through a friend’s invite ✓':(refLinkErr?`⚠️ Could not register your invite (${refLinkErr})`:'🤝 Registering your invite…')):'';
+  el.innerText=[a,refSync].filter(Boolean).join(' · ');
+}
+async function ensureMyReferral(){
+  if(!referredBy||refLinked||!loaded) return;
+  try{ await window.refEnsure(getUserId(),referredBy); refLinked=true; refLinkErr=''; if(miningStart||totalSessions>=1) markReferralQualified(); }
+  catch(e){ refLinkErr=e.code||e.message||'error'; console.error('referral register failed',e); }
+  paintRefSync();
+}
 async function markReferralQualified(){
   if(!referredBy||refQSent||!loaded) return;
   try{ await window.refEnsure(getUserId(),referredBy); await window.refMarkQualified(getUserId()); refQSent=true; saveNow(); }catch(e){ console.error('referral qualify failed',e); }
@@ -891,10 +903,11 @@ async function checkReferrals(){
       try{
         await window.refClaim(r.id, getUserId());
         refPaid.push(r.id); referralCount++; refFriendEarn+=REF_FRIEND_REWARD; balance+=REF_FRIEND_REWARD; addClaim('referral',REF_FRIEND_REWARD); changed=true; notify('🤝',`A friend started mining · +${REF_FRIEND_REWARD} SUTRA · ${referralCount} friends`,true);
-      }catch(e){}
+      }catch(e){ console.error('referral claim failed',r.id,e); refSync='⚠️ Could not credit a friend ('+(e.code||e.message||'error')+')'; }
     }
     refWaiting=wait; refList=list.slice().sort((a,b)=>((b.createdAt&&b.createdAt.seconds)||0)-((a.createdAt&&a.createdAt.seconds)||0)); readyLevelNotice(); renderRefList(); if(payMilestones()) changed=true; if(checkBadges()) changed=true; recordRefHist(); renderMilestones(); renderRefChart(); if(changed) await saveNow(); render();
-  }catch(e){}
+    refSync='✓ Synced '+new Date().toLocaleTimeString([],{hour:'2-digit',minute:'2-digit',second:'2-digit'}); paintRefSync();
+  }catch(e){ console.error('referral check failed',e); refSync='⚠️ Could not check referrals ('+(e.code||e.message||'error')+')'; paintRefSync(); }
 }
 function openSupport(){ tg?.openTelegramLink ? tg.openTelegramLink(supportLink) : window.open(supportLink,"_blank"); }
 
@@ -936,7 +949,7 @@ window.bootApp = async function(au){
     const refId=sp.slice(4);
     if(refId && refId!==uid){
       referredBy=refId;
-      try{ await window.saveUserData(uid,{referredBy:refId}); await window.refCreate(uid,refId); }catch(e){}
+      try{ await window.saveUserData(uid,{referredBy:refId}); }catch(e){ console.error('referredBy save failed',e); }
     }
   }
   settle();
@@ -945,7 +958,7 @@ window.bootApp = async function(au){
   if(firstTime) openSheet('welcomeModal');
   loadAnnouncements(); loadLeaderboard(); loadRefBoard();
   renderGift(); renderSocials(); checkReferrals();
-  if(referredBy){ window.refEnsure(uid,referredBy).catch(()=>{}).then(()=>{ if(miningStart||totalSessions>=1) markReferralQualified(); }); }
+  ensureMyReferral(); setInterval(ensureMyReferral,60000);
   document.addEventListener('visibilitychange',()=>{ if(!document.hidden) checkReferrals(); });
   setInterval(loop,1000); setInterval(loadLeaderboard,60000); setInterval(loadRefBoard,60000); setInterval(checkReferrals,30000);
   setInterval(()=>{ if(!document.hidden){ settle(); saveNow({online:true,lastHeartbeat:Date.now()}); } },30000);
